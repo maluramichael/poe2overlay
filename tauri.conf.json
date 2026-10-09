@@ -65,10 +65,16 @@
   "bundle": {
     "active": true,
     "targets": [
-      "nsis"
+      "nsis",
+      "msi"
     ],
     "icon": [
       "icons/icon.ico"
-    ]
+    ],
+    "publisher": "Michael Malura",
+    "shortDescription": "PoE2 campaign guide overlay",
+    "longDescription": "Open-source in-game overlay for Path of Exile 2 with a campaign guide that follows your zone.",
+    "copyright": "MIT License",
+    "category": "Game"
   }
 }
