@@ -45,7 +45,7 @@ The game must run in **Windowed** or **Windowed Fullscreen**. Exclusive fullscre
 
 All of them can be changed in the settings.
 
-Drag the panel by its header (mini mode: by the line, a click opens the full panel). Tray icon: settings, reset guide, quit.
+Drag the panel by its header (mini mode: by the line, a click opens the full panel). In the lower half of the screen it opens upwards. A hotkey taken by another app (e.g. Exiled Exchange 2) shows in red and is retried every 5 seconds. Tray icon: settings, reset guide, quit.
 
 ## Client.txt not found?
 

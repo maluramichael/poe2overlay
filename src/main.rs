@@ -137,6 +137,8 @@ struct App {
     guide: RwLock<(guide::Guide, String)>,
     shared: Arc<Mutex<Shared>>,
     bindings: Mutex<Vec<(Shortcut, &'static str)>>,
+    /// Hotkeys Windows refused, retried every few seconds (another overlay may let go).
+    failed: Mutex<Vec<(Shortcut, &'static str)>>,
     dir: PathBuf,
 }
 
@@ -195,9 +197,25 @@ impl App {
         let bindings = self.snap.lock().unwrap().saved.hotkeys.parse()?;
         let gs = app.global_shortcut();
         let _ = gs.unregister_all();
-        let failed: Vec<&str> = bindings.iter().filter(|(s, _)| gs.register(*s).is_err()).map(|(_, a)| *a).collect();
+        let failed: Vec<_> = bindings.iter().filter(|(s, _)| gs.register(*s).is_err()).copied().collect();
         *self.bindings.lock().unwrap() = bindings;
-        let err = (!failed.is_empty()).then(|| format!("Hotkey von einer anderen App belegt: {}", failed.join(", ")));
+        *self.failed.lock().unwrap() = failed;
+        self.report_failed(app)
+    }
+
+    /// Main thread only, see register_hotkeys.
+    fn retry_failed(&self, app: &AppHandle) {
+        let gs = app.global_shortcut();
+        let before = self.failed.lock().unwrap().len();
+        self.failed.lock().unwrap().retain(|(s, _)| gs.register(*s).is_err());
+        if self.failed.lock().unwrap().len() != before {
+            let _ = self.report_failed(app);
+        }
+    }
+
+    fn report_failed(&self, app: &AppHandle) -> Result<(), String> {
+        let names: Vec<&str> = self.failed.lock().unwrap().iter().map(|(_, a)| *a).collect();
+        let err = (!names.is_empty()).then(|| format!("Hotkey von einer anderen App belegt: {}", names.join(", ")));
         self.update(app, |s, _| s.hotkey_error = err.clone());
         err.map_or(Ok(()), Err)
     }
@@ -282,11 +300,25 @@ fn toggle_mini(handle: AppHandle, app: State<App>) {
 
 /// The window follows the panel's rendered size (CSS pixels from the page).
 #[tauri::command]
-fn panel_size(window: tauri::WebviewWindow, app: State<App>, w: f64, h: f64) {
+fn panel_size(window: tauri::WebviewWindow, handle: AppHandle, app: State<App>, w: f64, h: f64) {
     let k = window.scale_factor().unwrap_or(1.0);
-    let mut s = app.shared.lock().unwrap();
-    (s.panel.w, s.panel.h) = ((w * k).ceil() as i32, (h * k).ceil() as i32);
-    game::place(&window, &mut s);
+    let (w, h) = ((w * k).ceil() as i32, (h * k).ceil() as i32);
+    let moved = {
+        let mut s = app.shared.lock().unwrap();
+        let (old, y) = (s.panel.h, s.panel.y);
+        // In the lower half of the game the panel grows upwards: its bottom edge stays put.
+        let lower = s.game.is_some_and(|g| old > 0 && y + old / 2 > (g.bottom - g.top) / 2);
+        if lower {
+            s.panel.y -= h - old;
+        }
+        (s.panel.w, s.panel.h) = (w, h);
+        game::place(&window, &mut s);
+        (lower && h != old).then_some((s.panel.x, s.panel.y))
+    };
+    // Saved so a restart finds the panel where it was, at its current size.
+    if let Some((x, y)) = moved {
+        app.update(&handle, |s, _| (s.saved.x, s.saved.y) = (x as f64, y as f64));
+    }
 }
 
 /// phase: "start" | "move" | "end". The offset is saved on "end".
@@ -385,6 +417,7 @@ fn main() {
                 guide: RwLock::new((guide::Guide::parse(&json)?, json)),
                 shared: shared.clone(),
                 bindings: Mutex::new(Vec::new()),
+                failed: Mutex::new(Vec::new()),
                 dir,
             });
             // Windows are created only now ("create": false in tauri.conf.json):
@@ -396,6 +429,15 @@ fn main() {
             if let Err(e) = handle.state::<App>().register_hotkeys(&handle) {
                 eprintln!("hotkeys: {e}");
             }
+            // Retry refused hotkeys on the main thread, outside the shortcut handler.
+            let h = handle.clone();
+            std::thread::spawn(move || loop {
+                std::thread::sleep(Duration::from_secs(5));
+                if !h.state::<App>().failed.lock().unwrap().is_empty() {
+                    let h2 = h.clone();
+                    let _ = h.run_on_main_thread(move || h2.state::<App>().retry_failed(&h2));
+                }
+            });
             refresh_guide(handle.clone());
 
             let (h, sh) = (handle.clone(), shared.clone());
