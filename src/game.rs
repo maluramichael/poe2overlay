@@ -56,7 +56,9 @@ pub fn focus_game(game_hwnd: isize) {
 /// Sizes a window (logical px) and puts it in the middle of the game.
 pub fn center_on_game(win: &WebviewWindow, game: Option<RECT>, w: f64, h: f64) {
     let k = win.scale_factor().unwrap_or(1.0);
-    let (pw, ph) = ((w * k) as i32, (h * k) as i32);
+    // Never larger than the game window (small windowed games).
+    let fit = |v: f64, room: Option<i32>| ((v * k) as i32).min(room.map_or(i32::MAX, |r| r - 20));
+    let (pw, ph) = (fit(w, game.map(|g| g.right - g.left)), fit(h, game.map(|g| g.bottom - g.top)));
     let _ = win.set_size(PhysicalSize::new(pw as u32, ph as u32));
     if let Some(g) = game {
         let _ = win.set_position(PhysicalPosition::new(g.left + (g.right - g.left - pw) / 2, g.top + (g.bottom - g.top - ph) / 2));

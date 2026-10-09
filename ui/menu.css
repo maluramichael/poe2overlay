@@ -13,7 +13,7 @@ legend{float:left;width:100%;padding:0 0 6px;font-variant:small-caps;letter-spac
 label{margin-right:16px;cursor:pointer;color:var(--ink)}
 input[type=radio]{accent-color:var(--sand)}
 .help{margin:0 0 8px;font-size:13px;color:var(--ink-3)}
-.hotkeys{display:grid;grid-template-columns:1fr 200px;gap:5px 10px;align-items:center}
+.hotkeys{clear:both;display:grid;grid-template-columns:1fr 200px;gap:5px 10px;align-items:center}
 .hk{font:12px var(--num);text-align:left;color:var(--ink)}
 .hk.capturing{color:var(--gold);border-color:var(--gold)}
 .hk:empty::before{content:"-";color:var(--ink-3)}
@@ -34,6 +34,6 @@ footer{position:sticky;bottom:0;display:flex;gap:8px;align-items:center;padding:
 .pick code{font:12px var(--num);color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pick.copied{border-color:var(--gold)}
 #empty{padding:8px}
-.sliders{display:grid;grid-template-columns:1fr 200px 44px;gap:6px 10px;align-items:center}
+.sliders{clear:both;display:grid;grid-template-columns:1fr 200px 44px;gap:6px 10px;align-items:center}
 input[type=range]{accent-color:var(--sand)}
 output{font:12px var(--num);font-variant-numeric:tabular-nums;color:var(--ink-2);text-align:right}

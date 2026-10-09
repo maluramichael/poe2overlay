@@ -79,7 +79,7 @@ struct Look {
 
 impl Default for Look {
     fn default() -> Self {
-        Look { full_size: 100, mini_size: 100, opacity: 86 }
+        Look { full_size: 100, mini_size: 100, opacity: 85 }
     }
 }
 
@@ -269,7 +269,7 @@ fn toggle_window(app: &AppHandle, label: &str) {
         hide_window(app, label);
         return;
     }
-    let (w, h) = if label == "menu" { (560.0, 640.0) } else { (460.0, 340.0) };
+    let (w, h) = if label == "menu" { (600.0, 960.0) } else { (460.0, 340.0) };
     // Copy out: never hold a lock across window calls.
     let game = app.state::<App>().shared.lock().unwrap().game;
     game::center_on_game(&win, game, w, h);
