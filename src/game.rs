@@ -126,7 +126,8 @@ fn client_rect(hwnd: HWND) -> Option<RECT> {
     Some(RECT { left: origin.x, top: origin.y, right: origin.x + r.right, bottom: origin.y + r.bottom })
 }
 
-pub fn spawn_tracker(win: WebviewWindow, shared: Arc<Mutex<Shared>>) {
+/// `regex`: the regex list, hidden together with the overlay when the game leaves the front.
+pub fn spawn_tracker(win: WebviewWindow, regex: WebviewWindow, shared: Arc<Mutex<Shared>>) {
     // Test knob: point the overlay at another window while the real game runs.
     let title = HSTRING::from(std::env::var("POE2OVERLAY_GAME_TITLE").unwrap_or_else(|_| "Path of Exile 2".into()));
     thread::spawn(move || {
@@ -151,6 +152,9 @@ pub fn spawn_tracker(win: WebviewWindow, shared: Arc<Mutex<Shared>>) {
             let want_visible = in_front && rect.is_some() && !s.user_hidden;
             if want_visible != visible {
                 let _ = if want_visible { win.show() } else { win.hide() };
+                if !want_visible {
+                    let _ = regex.hide();
+                }
                 visible = want_visible;
             }
         }

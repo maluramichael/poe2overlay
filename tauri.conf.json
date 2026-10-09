@@ -37,6 +37,22 @@
         "shadow": false,
         "resizable": false,
         "visible": false
+      },
+      {
+        "label": "regex",
+        "title": "PoE2 Overlay Regex",
+        "url": "menu.html",
+        "width": 460,
+        "height": 340,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false,
+        "resizable": false,
+        "focus": false,
+        "focusable": false,
+        "visible": false
       }
     ],
     "security": {

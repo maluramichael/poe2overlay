@@ -211,39 +211,40 @@ impl App {
                 let mut s = self.shared.lock().unwrap();
                 s.user_hidden = !s.user_hidden;
             }
-            view => toggle_menu(app, view),
+            "settings" => toggle_window(app, "menu"),
+            _ => toggle_window(app, "regex"),
         }
     }
 }
 
-/// Opens the settings or regex view over the game, or closes it if it is open.
-fn toggle_menu(app: &AppHandle, view: &str) {
-    let Some(menu) = app.get_webview_window("menu") else { return };
-    if menu.is_visible().unwrap_or(false) {
-        close_menu(app);
+/// Opens the settings window ("menu", takes focus for typing) or the regex
+/// list ("regex", never takes focus, so the game keeps it) over the game, or
+/// closes it if it is open. Never (un)registers hotkeys: this runs inside the
+/// shortcut plugin's handler, which holds the plugin's lock.
+fn toggle_window(app: &AppHandle, label: &str) {
+    let Some(win) = app.get_webview_window(label) else { return };
+    if win.is_visible().unwrap_or(false) {
+        hide_window(app, label);
         return;
     }
-    let (w, h) = if view == "settings" { (560.0, 640.0) } else { (460.0, 340.0) };
-    // Copy out: window getters wait for the main thread, never call them holding a lock.
+    let (w, h) = if label == "menu" { (560.0, 640.0) } else { (460.0, 340.0) };
+    // Copy out: never hold a lock across window calls.
     let game = app.state::<App>().shared.lock().unwrap().game;
-    game::center_on_game(&menu, game, w, h);
-    // While editing hotkeys, Windows must not swallow the keys being recorded.
-    // They come back when the menu closes or loses focus.
-    if view == "settings" {
-        let _ = app.global_shortcut().unregister_all();
+    game::center_on_game(&win, game, w, h);
+    let _ = win.emit("menu-view", label);
+    let _ = win.show();
+    if label == "menu" {
+        let _ = win.set_focus();
     }
-    let _ = menu.emit("menu-view", view);
-    let _ = menu.show();
-    let _ = menu.set_focus();
 }
 
-fn close_menu(app: &AppHandle) {
-    if let Some(menu) = app.get_webview_window("menu") {
-        let _ = menu.hide();
+fn hide_window(app: &AppHandle, label: &str) {
+    if let Some(win) = app.get_webview_window(label) {
+        let _ = win.hide();
     }
-    let st = app.state::<App>();
-    let _ = st.register_hotkeys(app);
-    game::focus_game(st.shared.lock().unwrap().game_hwnd);
+    if label == "menu" {
+        game::focus_game(app.state::<App>().shared.lock().unwrap().game_hwnd);
+    }
 }
 
 /// Fetches the current route in the background; keeps a copy for offline starts.
@@ -311,14 +312,14 @@ fn save_settings(handle: AppHandle, app: State<App>, settings: Settings) -> Resu
 }
 
 #[tauri::command]
-fn close(handle: AppHandle) {
-    close_menu(&handle);
+fn close(window: tauri::WebviewWindow) {
+    hide_window(window.app_handle(), window.label());
 }
 
 #[tauri::command]
-fn copy_regex(handle: AppHandle, value: String) -> Result<(), String> {
+fn copy_regex(window: tauri::WebviewWindow, value: String) -> Result<(), String> {
     clip::copy(&value).map_err(|e| e.to_string())?;
-    close_menu(&handle);
+    hide_window(window.app_handle(), window.label());
     Ok(())
 }
 
@@ -336,11 +337,10 @@ fn main() {
                         return;
                     }
                     let action = handle.state::<App>().bindings.lock().unwrap().iter().find(|(s, _)| s == shortcut).map(|(_, a)| *a);
-                    // The plugin holds its shortcut lock while calling us; actions that
-                    // (un)register hotkeys would deadlock here, so they run on their own thread.
+                    // Runs on the main thread under the plugin's lock: actions must not
+                    // (un)register hotkeys. Registering happens only at start and on save.
                     if let Some(a) = action {
-                        let h = handle.clone();
-                        std::thread::spawn(move || h.state::<App>().action(&h, a));
+                        handle.state::<App>().action(handle, a);
                     }
                 })
                 .build(),
@@ -361,8 +361,6 @@ fn main() {
             // Clicking back into the game closes the menu.
             if window.label() == "menu" && matches!(event, WindowEvent::Focused(false)) {
                 let _ = window.hide();
-                let app = window.app_handle();
-                let _ = app.state::<App>().register_hotkeys(app);
             }
         })
         .setup(|tauri_app| {
@@ -398,7 +396,7 @@ fn main() {
 
             let (h, sh) = (handle.clone(), shared.clone());
             log::spawn_tail(move || sh.lock().unwrap().log.clone(), move |e| h.state::<App>().on_log(&h, e));
-            game::spawn_tracker(tauri_app.get_webview_window("overlay").unwrap(), shared);
+            game::spawn_tracker(tauri_app.get_webview_window("overlay").unwrap(), tauri_app.get_webview_window("regex").unwrap(), shared);
 
             let settings = MenuItem::with_id(tauri_app, "settings", "Einstellungen", true, None::<&str>)?;
             let reset = MenuItem::with_id(tauri_app, "reset", "Guide auf Anfang setzen", true, None::<&str>)?;
@@ -408,7 +406,7 @@ fn main() {
                 .tooltip("PoE2 Overlay")
                 .menu(&Menu::with_items(tauri_app, &[&settings, &reset, &quit])?)
                 .on_menu_event(|handle, event| match event.id.as_ref() {
-                    "settings" => toggle_menu(handle, "settings"),
+                    "settings" => toggle_window(handle, "menu"),
                     "reset" => handle.state::<App>().update(handle, |s, _| s.saved.step = 0),
                     "quit" => handle.exit(0),
                     _ => {}

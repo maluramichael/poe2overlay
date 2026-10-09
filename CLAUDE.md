@@ -12,7 +12,7 @@ Open-Source-Ingame-Overlay für Path of Exile 2 (Ersatz für poeoverlay.com ohne
 | `src/game.rs` | Win32: Fenster `Path of Exile 2` finden, Overlay-Fenster = genau das Panel, an Offset `x,y` (physische px) im Client-Bereich, nur bei Spiel im Vordergrund sichtbar, Ziehen über die echte Cursorposition |
 | `ui/` | HTML/CSS/JS (ohne Build-Schritt), `ui/guide.json` = generierte Route |
 | `src/clip.rs` | Text in die Windows-Zwischenablage (Regexe) |
-| `ui/menu.*` | Zweites Fenster `menu`: Einstellungen (`Shift+Space`) und Regex-Liste; fokussierbar, beim Schließen bekommt das Spiel den Fokus zurück, in den Einstellungen sind die globalen Hotkeys pausiert |
+| `ui/menu.*` | Seite für zwei Fenster: `menu` = Einstellungen (`Shift+Space`, fokussierbar, beim Schließen bekommt das Spiel den Fokus zurück), `regex` = Regex-Liste (nie fokussiert wie das Panel, sonst schließt sie beim Loslassen von Alt) |
 | `scripts/make_icon.py` | erzeugt `icons/icon.ico` |
 
 ## Wichtig
@@ -21,7 +21,7 @@ Open-Source-Ingame-Overlay für Path of Exile 2 (Ersatz für poeoverlay.com ohne
 - `focusable: false` im Fenster-Config: Klick ins Overlay lässt dem Spiel den Fokus. Nicht entfernen.
 - Kein Klick-durch-Umschalten: `set_ignore_cursor_events(false)` entfernt `WS_EX_LAYERED` (weißer Blitz), und mit dauerhaft gesetztem `LAYERED` gehen Klicks durch das Panel ins Spiel (WebView2 zeichnet an der Layered-Fläche vorbei). Darum ist das Fenster nur so groß wie das Panel.
 - Schritt erledigt per Belohnungszeile im Log (`: <char> has received +10% to [Resistances|Cold Resistance].`, `: You have received 2 Passive Skill Points.`): Tabelle `REWARDS` in `src/guide.rs` mappt Phrase im englischen Goal-Text nach `->` auf den Log-Text. Kills selbst stehen nicht im Log, Boss-Sprüche schon (`Beira of the Rotten Pack: Invader!`).
-- Threads/Sperren: Der Global-Shortcut-Handler läuft unter der Plugin-Sperre, darin nie Hotkeys (un)registrieren, Aktionen laufen darum in einem eigenen Thread. Fenster-Getter (`scale_factor`, `is_visible`, `outer_size`) warten von Nebenthreads auf den Hauptthread: dabei nie `shared`/`snap` halten. Setter (`set_position`, `show`) blockieren nicht. Sync-Commands laufen auf dem Hauptthread.
+- Threads/Sperren: Der Global-Shortcut-Handler läuft auf dem Hauptthread unter der Plugin-Sperre (auch bei Released-Events), und `register`/`unregister_all` halten dieselbe Sperre, während sie auf den Hauptthread warten. Darum Hotkeys nur beim Start und in `save_settings` (Hauptthread) registrieren, nie in Aktionen und nie aus Nebenthreads (beides hat das Overlay schon eingefroren). Fenster-Getter (`scale_factor`, `is_visible`, `outer_size`) warten von Nebenthreads auf den Hauptthread: dabei nie `shared`/`snap` halten. Setter (`set_position`, `show`) blockieren nicht. Sync-Commands laufen auf dem Hauptthread.
 - Panelgröße kommt per ResizeObserver vom JS in CSS-px, Rust rechnet mit `scale_factor` auf physische px um und setzt die Fenstergröße.
 - Log-Pfad: sobald das Spielfenster da ist, `logs\Client.txt` neben der exe des Spielprozesses (Michael spielt über Steam auf `D:\Steam\...`, der Standalone-Log unter C: ist veraltet). Prüfen mit `cargo test -- --ignored` bei laufendem Spiel.
 - Log-Zeilen-Formate stehen als Tests in `src/log.rs` (aus echtem PoE2-Log, 0.5.x).

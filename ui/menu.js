@@ -2,7 +2,10 @@ const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 const $ = (id) => document.getElementById(id);
 const form = $("settings");
-let state, view, capturing = null;
+// Two windows load this page: "menu" (settings, focusable) and "regex" (the list,
+// never focused, so the game keeps the keyboard).
+const view = window.__TAURI__.window.getCurrentWindow().label === "regex" ? "regex" : "settings";
+let state, capturing = null;
 
 const L = (de, en) => (state?.lang === "en" ? en : de);
 const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -56,7 +59,6 @@ async function copy(i) {
 }
 
 async function open(v) {
-  view = v;
   capturing = null;
   state = await invoke("snapshot");
   translate();
@@ -136,4 +138,6 @@ form.addEventListener("submit", async (e) => {
   }
 });
 
-listen("menu-view", (e) => open(e.payload));
+listen("menu-view", (e) => {
+  if ((e.payload === "regex") === (view === "regex")) open(view);
+});
