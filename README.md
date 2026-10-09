@@ -41,7 +41,7 @@ Drag the panel by its header (mini mode: by the line, a click opens the full pan
 
 ## Client.txt not found?
 
-Standalone and Steam default paths (drives C to H) are found automatically. Otherwise quit the overlay and add the path to `state.json`:
+While the game runs, the overlay reads the `logs\Client.txt` next to the game's exe, wherever it is installed. Before that it uses the newest log from the usual standalone and Steam paths. To force a path, quit the overlay and add it to `state.json`:
 
 ```json
 { "client_log": "D:\\Games\\Path of Exile 2\\logs\\Client.txt" }

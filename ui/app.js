@@ -7,6 +7,11 @@ let guide, state;
 const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const md = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
 const t = (v) => (v ? v[state.lang] || v.de : "");
+// Goal line: task in white, **names** in gold, everything after "->" is the reward (mod blue).
+function goal(s) {
+  const [task, ...reward] = t(s.text).split(" -> ");
+  return `<span class="task">${md(task)}</span>` + (reward.length ? ` <span class="reward">-&gt; ${md(reward.join(" -> "))}</span>` : "");
+}
 
 // XP penalty window: 3 levels + 1 per 16 character levels.
 function levelWarn(char, area) {
@@ -28,6 +33,7 @@ function render() {
   const act = guide.acts[s.act];
   document.documentElement.lang = state.lang;
   panel.classList.toggle("mini", state.mini);
+  panel.hidden = false;
   panel.style.left = state.x + "px";
   panel.style.top = state.y + "px";
 
@@ -41,12 +47,8 @@ function render() {
   const go = goTo(s);
   const goLabel = state.lang === "de" ? "Gehe nach" : "Go to";
   if (state.mini) {
-    // One line. Elsewhere: where to go and what to do there. In the zone: what to do and where next.
-    const to = guide.steps.slice(i + 1).find((n) => n.zone !== s.zone);
-    cur.innerHTML = go
-      ? `<span class="go">${goLabel} <b>${esc(go)}</b>:</span> <span class="goal">${md(t(s.text))}</span>`
-      : `<span class="zone">${esc(s.zone)}</span> <span class="goal">${md(t(s.text))}</span>` +
-        (to ? ` <span class="to">-&gt; ${esc(to.zone)}</span>` : "");
+    // One line. Elsewhere: where to go and what to do there. In the zone: just the task.
+    cur.innerHTML = (go ? `<span class="go">${goLabel} <span class="dest">${esc(go)}</span>:</span> ` : "") + `<span class="goal">${goal(s)}</span>`;
     $("upcoming").innerHTML = "";
     $("nolog").hidden = true;
     reportHitRect();
@@ -54,9 +56,9 @@ function render() {
   }
   const opt = s.tags.includes("must") ? "" : `<span class="optional">optional</span>`;
   cur.innerHTML =
-    (go ? `<div class="go">${goLabel} <b>${esc(go)}</b><span class="here">${esc(state.zone)}</span></div>` : "") +
+    (go ? `<div class="go">${goLabel} <span class="dest">${esc(go)}</span><span class="here">${esc(state.zone)}</span></div>` : "") +
     `<div class="zone">${esc(s.zone)}${s.level ? `<span class="lvl">Lvl ${esc(s.level)}</span>` : ""}${opt}</div>` +
-    `<div class="goal">${md(t(s.text))}</div>` +
+    `<div class="goal">${goal(s)}</div>` +
     (s.hint ? `<div class="hint">${md(t(s.hint))}</div>` : "") +
     (s.notes.length ? `<ul class="notes">${s.notes.map((n) => `<li>${md(t(n))}</li>`).join("")}</ul>` : "");
 
@@ -65,7 +67,6 @@ function render() {
     .map((n) => `<li><span class="z">${esc(n.zone)}</span>${md(t(n.text))}</li>`)
     .join("");
   $("nolog").hidden = state.log_found;
-  panel.hidden = false;
   reportHitRect();
 }
 

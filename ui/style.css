@@ -1,7 +1,7 @@
 :root{
   --panel:rgba(12,11,9,.86);--band:rgba(26,23,18,.9);--line:#2b261e;--rule-2:#3a3226;
   --ink:#e2dbcc;--ink-2:#a79e8c;--ink-3:#7a7162;
-  --sand:#a38d6d;--gold:#dfcf99;--town:#8e9ad2;--trial:#cf7f42;--bad:#e8685a;
+  --sand:#a38d6d;--gold:#dfcf99;--white:#f4efe4;--mod:#9696f7;--dest:#d9b77a;--town:#8e9ad2;--trial:#cf7f42;--bad:#e8685a;
   --serif:"Palatino Linotype","Book Antiqua",Georgia,serif;
   --num:"Segoe UI",system-ui,sans-serif;
 }
@@ -18,20 +18,21 @@ body{color:var(--ink);font:15px/1.4 var(--serif);-webkit-font-smoothing:antialia
 
 #current{padding:9px 12px 10px}
 .go{margin:-9px -12px 8px;padding:5px 12px;background:rgba(223,207,153,.1);border-bottom:1px solid var(--line);font-size:14px;color:var(--ink-2)}
-.go b{color:var(--gold);font-weight:600}
+.go .dest{color:var(--dest);font-variant:small-caps;letter-spacing:.03em;font-weight:600}
 .go .here{float:right;font-size:12px;color:var(--ink-3)}
 .zone{font-variant:small-caps;letter-spacing:.04em;font-size:13px;color:var(--sand)}
 .zone .lvl{font:11px var(--num);color:var(--ink-3);margin-left:6px}
 .town .zone{color:var(--town)}
 .ascend .zone{color:var(--trial)}
-.goal{font-size:17px;color:var(--gold);margin-top:1px}
-.goal b{font-weight:600}
+.goal{font-size:17px;margin-top:1px}
+.task{color:var(--white)}
+.reward,.reward b{color:var(--mod)}
 .hint{color:var(--ink-2);margin-top:3px}
 .notes{margin:6px 0 0;padding:0 0 0 16px;color:var(--ink-2);font-size:14px}
 .notes li{margin-top:2px}
 .notes li::marker{color:var(--ink-3)}
 b{color:var(--ink);font-weight:600}
-.goal b{color:var(--gold)}
+.task b{color:var(--gold)}
 .optional{font:11px var(--num);color:var(--ink-3);margin-left:6px}
 
 #upcoming{list-style:none;margin:0;padding:6px 12px 8px;border-top:1px solid var(--line);font-size:13px;color:var(--ink-3)}
@@ -41,11 +42,9 @@ b{color:var(--ink);font-weight:600}
 
 #nolog{margin:0;padding:6px 12px 8px;border-top:1px solid var(--line);font-size:12px;color:var(--bad)}
 
-/* mini mode: one line, zone + goal + next zone */
+/* mini mode: one line, task (or where to go + task) */
 #panel.mini{width:auto;max-width:640px;cursor:move}
 .mini #bar,.mini #upcoming,.mini #nolog{display:none}
 .mini #current{padding:4px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:14px}
-.mini .zone{font-size:12px;margin-right:4px}
 .mini .goal{display:inline;font-size:14px}
 .mini .go{display:inline;margin:0;padding:0;background:none;border:0}
-.mini .to{color:var(--ink-3);font-size:13px;margin-left:4px}

@@ -14,6 +14,8 @@ pub enum Event {
     Area { id: String, level: u32 },
     /// `: Name (Class) is now level 12`
     Level(u32),
+    /// The tail switched to a (new) log file.
+    Opened,
 }
 
 pub fn parse(line: &str) -> Option<Event> {
@@ -40,43 +42,61 @@ pub fn parse(line: &str) -> Option<Event> {
     None
 }
 
-/// Default install locations, standalone first, then Steam on the usual drives.
+/// Fallback until the game runs (then the log next to its exe wins): the most
+/// recently written log among the usual standalone and Steam install paths.
 pub fn find_client_log() -> Option<PathBuf> {
     let mut candidates = vec![PathBuf::from(r"C:\Program Files (x86)\Grinding Gear Games\Path of Exile 2\logs\Client.txt")];
     for drive in ['C', 'D', 'E', 'F', 'G', 'H'] {
-        candidates.push(format!(r"{drive}:\Program Files (x86)\Steam\steamapps\common\Path of Exile 2\logs\Client.txt").into());
-        candidates.push(format!(r"{drive}:\SteamLibrary\steamapps\common\Path of Exile 2\logs\Client.txt").into());
+        for steam in [r"Program Files (x86)\Steam", "Steam", "SteamLibrary"] {
+            candidates.push(format!(r"{drive}:\{steam}\steamapps\common\Path of Exile 2\logs\Client.txt").into());
+        }
     }
-    candidates.into_iter().find(|p| p.is_file())
+    candidates.into_iter().filter_map(|p| Some((p.metadata().ok()?.modified().ok()?, p))).max().map(|(_, p)| p)
 }
 
-/// Replays the latest state from the end of the log, then follows new lines forever.
-pub fn spawn_tail(path: PathBuf, on_event: impl Fn(Event) + Send + 'static) {
+/// Follows whatever file `want` returns. On every switch it replays the latest
+/// state from the end of the new file, then reads only appended lines.
+pub fn spawn_tail(want: impl Fn() -> Option<PathBuf> + Send + 'static, on_event: impl Fn(Event) + Send + 'static) {
     thread::spawn(move || {
-        let mut offset = catch_up(&path, &on_event).unwrap_or(0);
-        let mut partial = String::new();
+        let (mut path, mut offset, mut partial) = (None::<PathBuf>, 0, String::new());
         loop {
-            thread::sleep(Duration::from_millis(250));
-            let Ok(mut file) = File::open(&path) else { continue };
-            let Ok(len) = file.metadata().map(|m| m.len()) else { continue };
-            if len < offset {
-                offset = 0; // log was truncated or replaced
-            }
-            if len == offset || file.seek(SeekFrom::Start(offset)).is_err() {
-                continue;
-            }
-            let mut buf = Vec::new();
-            let Ok(n) = file.read_to_end(&mut buf) else { continue };
-            offset += n as u64;
-            partial.push_str(&String::from_utf8_lossy(&buf));
-            while let Some(nl) = partial.find('\n') {
-                let line: String = partial.drain(..=nl).collect();
-                if let Some(e) = parse(&line) {
-                    on_event(e);
+            let w = want();
+            if w != path {
+                path = w;
+                partial.clear();
+                if let Some(p) = &path {
+                    on_event(Event::Opened);
+                    offset = catch_up(p, &on_event).unwrap_or(0);
                 }
             }
+            if let Some(p) = &path {
+                read_new(p, &mut offset, &mut partial, &on_event);
+            }
+            thread::sleep(Duration::from_millis(250));
         }
     });
+}
+
+fn read_new(path: &Path, offset: &mut u64, partial: &mut String, on_event: &impl Fn(Event)) -> Option<()> {
+    let mut file = File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    if len < *offset {
+        *offset = 0; // log was truncated or replaced
+    }
+    if len == *offset {
+        return None;
+    }
+    file.seek(SeekFrom::Start(*offset)).ok()?;
+    let mut buf = Vec::new();
+    *offset += file.read_to_end(&mut buf).ok()? as u64;
+    partial.push_str(&String::from_utf8_lossy(&buf));
+    while let Some(nl) = partial.find('\n') {
+        let line: String = partial.drain(..=nl).collect();
+        if let Some(e) = parse(&line) {
+            on_event(e);
+        }
+    }
+    Some(())
 }
 
 /// Emits the last level, area and scene from the final 64 KB so the overlay
@@ -94,6 +114,7 @@ fn catch_up(path: &Path, on_event: &impl Fn(Event)) -> Option<u64> {
             Event::Level(_) => level = Some(e),
             Event::Area { .. } => area = Some(e),
             Event::Scene(_) => scene = Some(e),
+            Event::Opened => {}
         }
     }
     [level, area, scene].into_iter().flatten().for_each(on_event);
@@ -123,17 +144,25 @@ mod tests {
     }
 
     #[test]
-    fn tail_follows_appended_lines() {
-        let path = std::env::temp_dir().join(format!("poe2overlay-test-{}.txt", std::process::id()));
-        std::fs::write(&path, "x [SCENE] Set Source [Clearfell]\n").unwrap();
+    fn tail_follows_appended_lines_and_switches_files() {
+        let tmp = |n: &str| std::env::temp_dir().join(format!("poe2overlay-test-{}-{n}.txt", std::process::id()));
+        let (a, b) = (tmp("a"), tmp("b"));
+        std::fs::write(&a, "x [SCENE] Set Source [Clearfell]\n").unwrap();
+        std::fs::write(&b, "x [SCENE] Set Source [Ogham Village]\n").unwrap();
+        let want = std::sync::Arc::new(std::sync::Mutex::new(a.clone()));
+        let w = want.clone();
         let (tx, rx) = std::sync::mpsc::channel();
-        spawn_tail(path.clone(), move |e| tx.send(e).unwrap());
+        spawn_tail(move || Some(w.lock().unwrap().clone()), move |e| tx.send(e).unwrap());
         let wait = || rx.recv_timeout(Duration::from_secs(3)).unwrap();
+        assert_eq!(wait(), Event::Opened);
         assert_eq!(wait(), Event::Scene("Clearfell".into()));
-        let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        let mut f = std::fs::OpenOptions::new().append(true).open(&a).unwrap();
         std::io::Write::write_all(&mut f, b"x [SCENE] Set Source [The Grel").unwrap();
         std::io::Write::write_all(&mut f, b"wood]\r\n").unwrap();
         assert_eq!(wait(), Event::Scene("The Grelwood".into()));
-        let _ = std::fs::remove_file(path);
+        *want.lock().unwrap() = b.clone();
+        assert_eq!(wait(), Event::Opened);
+        assert_eq!(wait(), Event::Scene("Ogham Village".into()));
+        let _ = (std::fs::remove_file(a), std::fs::remove_file(b));
     }
 }

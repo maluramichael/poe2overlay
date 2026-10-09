@@ -73,6 +73,7 @@ impl App {
             }
             log::Event::Area { level, .. } => s.area_level = level,
             log::Event::Level(l) => s.char_level = l,
+            log::Event::Opened => s.log_found = true,
         });
     }
 
@@ -149,19 +150,22 @@ fn main() {
             std::fs::create_dir_all(&dir)?;
             let state_file = dir.join("state.json");
             let saved: Saved = std::fs::read_to_string(&state_file).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
-            let log_path = saved.client_log.clone().filter(|p| p.is_file()).or_else(log::find_client_log);
-            let shared = Arc::new(Mutex::new(Shared { hit: HitRect::default(), user_hidden: false }));
+            let pinned = saved.client_log.clone().filter(|p| p.is_file());
+            let shared = Arc::new(Mutex::new(Shared {
+                hit: HitRect::default(),
+                user_hidden: false,
+                log_pinned: pinned.is_some(),
+                log: pinned.or_else(log::find_client_log),
+            }));
             tauri_app.manage(App {
-                snap: Mutex::new(Snapshot { saved, log_found: log_path.is_some(), ..Default::default() }),
+                snap: Mutex::new(Snapshot { saved, ..Default::default() }),
                 guide: guide::Guide::parse(include_str!("../ui/guide.json"))?,
                 shared: shared.clone(),
                 state_file,
             });
 
-            if let Some(path) = log_path {
-                let h = handle.clone();
-                log::spawn_tail(path, move |e| h.state::<App>().on_log(&h, e));
-            }
+            let (h, sh) = (handle.clone(), shared.clone());
+            log::spawn_tail(move || sh.lock().unwrap().log.clone(), move |e| h.state::<App>().on_log(&h, e));
             game::spawn_tracker(tauri_app.get_webview_window("overlay").unwrap(), shared);
 
             let lang = MenuItem::with_id(tauri_app, "lang", "Sprache / Language", true, None::<&str>)?;
