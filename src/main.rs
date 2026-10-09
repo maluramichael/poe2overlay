@@ -68,6 +68,27 @@ impl Hotkeys {
     }
 }
 
+/// Panel look: text size per mode in percent, background opacity in percent.
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(default)]
+struct Look {
+    full_size: u32,
+    mini_size: u32,
+    opacity: u32,
+}
+
+impl Default for Look {
+    fn default() -> Self {
+        Look { full_size: 100, mini_size: 100, opacity: 86 }
+    }
+}
+
+impl Look {
+    fn clamped(self) -> Self {
+        Look { full_size: self.full_size.clamp(50, 300), mini_size: self.mini_size.clamp(50, 300), opacity: self.opacity.min(100) }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 struct Regex {
     name: String,
@@ -90,6 +111,7 @@ struct Saved {
     route: String,
     hotkeys: Hotkeys,
     regexes: Vec<Regex>,
+    look: Look,
 }
 
 impl Default for Saved {
@@ -104,6 +126,7 @@ impl Default for Saved {
             route: "all".into(),
             hotkeys: Hotkeys::default(),
             regexes: Vec::new(),
+            look: Look::default(),
         }
     }
 }
@@ -115,6 +138,7 @@ struct Settings {
     route: String,
     hotkeys: Hotkeys,
     regexes: Vec<Regex>,
+    look: Look,
 }
 
 /// What the pages render. Sent whole on every change, it is tiny.
@@ -261,7 +285,9 @@ fn hide_window(app: &AppHandle, label: &str) {
         let _ = win.hide();
     }
     if label == "menu" {
-        game::focus_game(app.state::<App>().shared.lock().unwrap().game_hwnd);
+        let st = app.state::<App>();
+        st.update(app, |_, _| {}); // drops an unsaved look preview
+        game::focus_game(st.shared.lock().unwrap().game_hwnd);
     }
 }
 
@@ -339,8 +365,15 @@ fn save_settings(handle: AppHandle, app: State<App>, settings: Settings) -> Resu
         s.saved.route = settings.route;
         s.saved.hotkeys = settings.hotkeys;
         s.saved.regexes = settings.regexes.into_iter().filter(|r| !r.value.trim().is_empty()).collect();
+        s.saved.look = settings.look.clamped();
     });
     app.register_hotkeys(&handle)
+}
+
+/// Live preview while the sliders move; not saved. Closing the settings re-sends the saved look.
+#[tauri::command]
+fn preview_look(handle: AppHandle, look: Look) {
+    let _ = handle.emit("look", look.clamped());
 }
 
 #[tauri::command]
@@ -386,6 +419,7 @@ fn main() {
             drag,
             save_settings,
             close,
+            preview_look,
             copy_regex,
             reload_guide
         ])
@@ -393,6 +427,8 @@ fn main() {
             // Clicking back into the game closes the menu.
             if window.label() == "menu" && matches!(event, WindowEvent::Focused(false)) {
                 let _ = window.hide();
+                let app = window.app_handle();
+                app.state::<App>().update(app, |_, _| {}); // drops an unsaved look preview
             }
         })
         .setup(|tauri_app| {

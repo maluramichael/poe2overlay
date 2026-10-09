@@ -34,3 +34,6 @@ footer{position:sticky;bottom:0;display:flex;gap:8px;align-items:center;padding:
 .pick code{font:12px var(--num);color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pick.copied{border-color:var(--gold)}
 #empty{padding:8px}
+.sliders{display:grid;grid-template-columns:1fr 200px 44px;gap:6px 10px;align-items:center}
+input[type=range]{accent-color:var(--sand)}
+output{font:12px var(--num);font-variant-numeric:tabular-nums;color:var(--ink-2);text-align:right}

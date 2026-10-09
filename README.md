@@ -10,7 +10,7 @@ Right now it does one thing: a **campaign guide** that sits on top of the game a
 - Knows where you are: in town, hideout or the wrong zone it says **Go to <zone>** for the current step.
 - **Mini mode:** one line with zone, what to do there and where to go next.
 - Shows character level vs. area level and turns red outside the XP penalty window.
-- **Settings** in game (`Shift+Space`): hotkeys, language, route mode, regexes.
+- **Settings** in game (`Shift+Space`): hotkeys, language, route mode, regexes, text size for the full panel and the mini line, background opacity (live preview).
 - **Regex list** (`Ctrl+Alt+R`): click a saved regex (vendor, stash, from a build guide) and it is on the clipboard, focus goes back to the game.
 - **Route mode** like on the website: everything, required + buffs, or required only.
 - German and English.

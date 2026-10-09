@@ -50,3 +50,5 @@ b{color:var(--ink);font-weight:600}
 .mini #current{padding:4px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:14px}
 .mini .goal{display:inline;font-size:14px}
 .mini .go{display:inline;margin:0;padding:0;background:none;border:0}
+/* see-through background: keep text readable over the game */
+#panel.glass{text-shadow:0 0 3px #000,0 0 2px #000,0 1px 1px #000}

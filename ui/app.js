@@ -43,12 +43,21 @@ function nextZone(i) {
   return n ? n.zone.split("->")[0].split("/")[0].trim() : "";
 }
 
+// Text size per mode (CSS zoom) and background opacity, from the settings.
+function applyLook(look) {
+  panel.style.zoom = (state.mini ? look.mini_size : look.full_size) / 100;
+  panel.style.setProperty("--panel", `rgba(12,11,9,${look.opacity / 100})`);
+  panel.classList.toggle("glass", look.opacity < 50);
+  requestAnimationFrame(reportSize);
+}
+
 function render() {
   const i = state.step, s = guide.steps[i];
   const act = guide.acts[s.act];
   document.documentElement.lang = state.lang;
   panel.classList.toggle("mini", state.mini);
   panel.hidden = false;
+  applyLook(state.look);
 
   const view = guide.steps.filter(shown);
   $("act").textContent = `${t(act.short)} · ${view.indexOf(s) + 1}/${view.length}`;
@@ -90,10 +99,11 @@ function render() {
 }
 
 // The window is exactly the panel: Rust sizes it to what we render here.
-new ResizeObserver(() => {
+function reportSize() {
   const r = panel.getBoundingClientRect();
   invoke("panel_size", { w: r.width, h: r.height });
-}).observe(panel);
+}
+new ResizeObserver(reportSize).observe(panel);
 
 $("prev").onclick = () => invoke("step", { delta: -1 });
 $("next").onclick = () => invoke("step", { delta: 1 });
@@ -126,6 +136,7 @@ panel.addEventListener("pointerdown", (e) => {
   guide = JSON.parse(await invoke("guide"));
   state = await invoke("snapshot");
   render();
+  listen("look", (e) => applyLook(e.payload));
   listen("state", (e) => {
     state = e.payload;
     render();

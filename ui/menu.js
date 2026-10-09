@@ -16,6 +16,19 @@ function translate() {
   document.querySelectorAll("[data-de]").forEach((el) => (el.textContent = L(el.dataset.de, el.dataset.en)));
 }
 
+const LOOK = ["full_size", "mini_size", "opacity"];
+const look = () => Object.fromEntries(LOOK.map((k) => [k, +$(k).value]));
+function showLook() {
+  LOOK.forEach((k) => (document.querySelector(`output[for=${k}]`).textContent = `${$(k).value} %`));
+}
+// Live preview in the panel; "Abbrechen" or closing drops it again.
+LOOK.forEach((k) =>
+  $(k).addEventListener("input", () => {
+    showLook();
+    invoke("preview_look", { look: look() });
+  })
+);
+
 function regexRow(r = { name: "", value: "" }) {
   const row = document.createElement("div");
   row.className = "row";
@@ -29,6 +42,8 @@ function regexRow(r = { name: "", value: "" }) {
 async function showSettings() {
   form.elements.lang.value = state.lang;
   form.elements.route.value = state.route;
+  LOOK.forEach((k) => ($(k).value = state.look[k]));
+  showLook();
   document.querySelectorAll(".hk").forEach((b) => {
     b.dataset.value = state.hotkeys[b.dataset.k];
     b.textContent = pretty(b.dataset.value);
@@ -131,7 +146,7 @@ form.addEventListener("submit", async (e) => {
     value: r.querySelector(".value").value,
   }));
   try {
-    await invoke("save_settings", { settings: { lang: form.elements.lang.value, route: form.elements.route.value, hotkeys, regexes } });
+    await invoke("save_settings", { settings: { lang: form.elements.lang.value, route: form.elements.route.value, hotkeys, regexes, look: look() } });
     invoke("close");
   } catch (err) {
     $("error").textContent = err;
