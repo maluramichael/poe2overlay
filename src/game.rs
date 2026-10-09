@@ -12,7 +12,9 @@ use windows::core::{HSTRING, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, HWND, POINT, RECT};
 use windows::Win32::Graphics::Gdi::ClientToScreen;
 use windows::Win32::System::Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION};
-use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, GetClientRect, GetCursorPos, GetForegroundWindow, GetWindowThreadProcessId, IsIconic};
+use windows::Win32::UI::WindowsAndMessaging::{
+    FindWindowW, GetClientRect, GetCursorPos, GetForegroundWindow, GetWindowThreadProcessId, IsIconic, SetForegroundWindow,
+};
 
 /// Panel offset from the game's client area and its size, physical pixels.
 #[derive(Default, Clone, Copy)]
@@ -38,6 +40,27 @@ pub struct Shared {
     pub(crate) placed: RECT,
     /// While dragging: cursor and panel offset at the start.
     pub(crate) drag: Option<(POINT, i32, i32)>,
+    /// Raw HWNDs (HWND itself is not Send): the game, and the settings/regex
+    /// window, which counts as "game in front" while it has focus.
+    pub(crate) game_hwnd: isize,
+    pub menu_hwnd: isize,
+}
+
+/// Hands the keyboard back to the game after the menu closes.
+pub fn focus_game(s: &Shared) {
+    if s.game_hwnd != 0 {
+        let _ = unsafe { SetForegroundWindow(HWND(s.game_hwnd as _)) };
+    }
+}
+
+/// Sizes a window (logical px) and puts it in the middle of the game.
+pub fn center_on_game(win: &WebviewWindow, s: &Shared, w: f64, h: f64) {
+    let k = win.scale_factor().unwrap_or(1.0);
+    let (pw, ph) = ((w * k) as i32, (h * k) as i32);
+    let _ = win.set_size(PhysicalSize::new(pw as u32, ph as u32));
+    if let Some(g) = s.game {
+        let _ = win.set_position(PhysicalPosition::new(g.left + (g.right - g.left - pw) / 2, g.top + (g.bottom - g.top - ph) / 2));
+    }
 }
 
 /// Moves and sizes the overlay window to the panel, keeping it inside the game.
@@ -112,9 +135,11 @@ pub fn spawn_tracker(win: WebviewWindow, shared: Arc<Mutex<Shared>>) {
             // ponytail: 100 ms polling, switch to SetWinEventHook if the lag ever shows
             thread::sleep(Duration::from_millis(100));
             let game = unsafe { FindWindowW(None, &title) }.ok();
-            let in_front = game.is_some_and(|g| unsafe { GetForegroundWindow() == g && !IsIconic(g).as_bool() });
             let rect = game.and_then(client_rect).filter(|r| r.right > r.left);
             let mut s = shared.lock().unwrap();
+            let fg = unsafe { GetForegroundWindow() };
+            let in_front = game.is_some_and(|g| (fg == g || (s.menu_hwnd != 0 && fg.0 as isize == s.menu_hwnd)) && !unsafe { IsIconic(g) }.as_bool());
+            s.game_hwnd = game.map_or(0, |g| g.0 as isize);
             if game.is_some() && game != last_game && !s.log_pinned {
                 if let Some(log) = game.and_then(game_log) {
                     s.log = Some(log);

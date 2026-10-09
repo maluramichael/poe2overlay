@@ -10,9 +10,12 @@ Right now it does one thing: a **campaign guide** that sits on top of the game a
 - Knows where you are: in town, hideout or the wrong zone it says **Go to <zone>** for the current step.
 - **Mini mode:** one line with zone, what to do there and where to go next.
 - Shows character level vs. area level and turns red outside the XP penalty window.
-- German and English (tray menu).
+- **Settings** in game (`Shift+Space`): hotkeys, language, route mode, regexes.
+- **Regex list** (`Ctrl+Alt+R`): click a saved regex (vendor, stash, from a build guide) and it is on the clipboard, focus goes back to the game.
+- **Route mode** like on the website: everything, required + buffs, or required only.
+- German and English.
 
-The route comes from [poe2speedrun.malura.de](https://poe2speedrun.malura.de/) (patch 0.5.5).
+The route comes from [poe2speedrun.malura.de](https://poe2speedrun.malura.de/). The overlay fetches `/overlay/guide.json` on every start, so a route update there reaches everyone without a new release. Offline it uses the last fetched copy, or the one built in.
 
 ## How it works
 
@@ -37,8 +40,12 @@ The game must run in **Windowed** or **Windowed Fullscreen**. Exclusive fullscre
 | `Ctrl+Alt+Right` / `Ctrl+Alt+Left` | Next / previous step |
 | `Ctrl+Alt+C` | Toggle mini mode |
 | `Ctrl+Alt+G` | Hide / show overlay |
+| `Shift+Space` | Settings |
+| `Ctrl+Alt+R` | Regex list (click or 1 to 9 copies) |
 
-Drag the panel by its header (mini mode: by the line, a click opens the full panel). Tray icon: language, reset guide, quit.
+All of them can be changed in the settings.
+
+Drag the panel by its header (mini mode: by the line, a click opens the full panel). Tray icon: settings, reset guide, quit.
 
 ## Client.txt not found?
 
@@ -56,7 +63,7 @@ cargo build --release  # target/release/poe2overlay.exe
 cargo test
 ```
 
-Update the route from a checkout of the guide repo: `uv run scripts/import_guide.py ../poe2`.
+Refresh the built-in fallback route: `curl -o ui/guide.json https://poe2speedrun.malura.de/overlay/guide.json`.
 
 ## License
 

@@ -1,4 +1,6 @@
 //! Moves the guide pointer when the player enters a zone or gets a step's reward.
+//! The route mode hides steps like the presets on poe2speedrun: "all",
+//! "buffs" (must + buff) or "must". The pointer only ever rests on shown steps.
 
 use serde::Deserialize;
 
@@ -48,6 +50,8 @@ struct Step {
     /// Normalized zone names ("A -> B" counts as both).
     zones: Vec<String>,
     town: bool,
+    must: bool,
+    buff: bool,
     /// Log texts that mean this step is done.
     rewards: Vec<&'static str>,
 }
@@ -76,6 +80,8 @@ impl Guide {
             .map(|s| Step {
                 zones: s.zone.split("->").flat_map(|p| p.split('/')).map(norm).filter(|z| !z.is_empty()).collect(),
                 town: s.tags.iter().any(|t| t == "town"),
+                must: s.tags.iter().any(|t| t == "must"),
+                buff: s.tags.iter().any(|t| t == "buff"),
                 rewards: rewards(&s.text.en),
             })
             .collect();
@@ -86,35 +92,78 @@ impl Guide {
         self.steps.len()
     }
 
+    /// Indices of the steps shown in this route mode.
+    fn view(&self, mode: &str) -> Vec<usize> {
+        let shown = |s: &Step| match mode {
+            "must" => s.must,
+            "buffs" => s.must || s.buff,
+            _ => true,
+        };
+        let v: Vec<usize> = (0..self.steps.len()).filter(|&i| shown(&self.steps[i])).collect();
+        if v.is_empty() { (0..self.steps.len()).collect() } else { v }
+    }
+
+    /// Position of `cur` in the view, or of the next shown step after it.
+    fn pos(view: &[usize], cur: usize) -> usize {
+        view.iter().position(|&i| i >= cur).unwrap_or(view.len() - 1)
+    }
+
+    /// `cur` moved onto a shown step (after a mode switch or a new guide).
+    pub fn snap(&self, cur: usize, mode: &str) -> usize {
+        let v = self.view(mode);
+        v[Self::pos(&v, cur)]
+    }
+
+    /// `delta` shown steps forward or back.
+    pub fn step(&self, cur: usize, delta: i64, mode: &str) -> usize {
+        let v = self.view(mode);
+        let p = (Self::pos(&v, cur) as i64 + delta).clamp(0, v.len() as i64 - 1);
+        v[p as usize]
+    }
+
     /// New pointer after entering `zone`, or None to stay.
     /// Town steps further than one step ahead are skipped: a portal back to
     /// sell must not jump over the rest of the current zone's steps. And when
     /// that portal did land on the next town step, walking back through it
     /// into the previous zone undoes the jump.
-    pub fn advance(&self, cur: usize, zone: &str) -> Option<usize> {
+    pub fn advance(&self, cur: usize, zone: &str, mode: &str) -> Option<usize> {
         let z = norm(zone);
-        let matches = |i: usize| self.steps[i].zones.contains(&z);
-        if cur >= self.steps.len() || matches(cur) {
-            return None;
+        let v = self.view(mode);
+        let p = Self::pos(&v, cur);
+        let s = |k: usize| &self.steps[v[k]];
+        let matches = |k: usize| s(k).zones.contains(&z);
+        if matches(p) {
+            return (v[p] != cur).then_some(v[p]);
         }
-        if cur > 0 && self.steps[cur].town && matches(cur - 1) {
-            return Some(cur - 1);
+        if p > 0 && s(p).town && matches(p - 1) {
+            return Some(v[p - 1]);
         }
-        (cur + 1..self.steps.len().min(cur + 1 + LOOKAHEAD)).find(|&i| matches(i) && (!self.steps[i].town || i == cur + 1))
+        (p + 1..v.len().min(p + 1 + LOOKAHEAD)).find(|&k| matches(k) && (!s(k).town || k == p + 1)).map(|k| v[k])
     }
 
-    /// New pointer after a reward line from the log: the step after the one
-    /// that gives this reward, or None to stay.
-    pub fn complete(&self, cur: usize, reward: &str) -> Option<usize> {
-        (cur..self.steps.len().min(cur + REWARD_LOOKAHEAD))
-            .find(|&i| self.steps[i].rewards.iter().any(|r| reward.contains(r)))
-            .map(|i| (i + 1).min(self.steps.len() - 1))
+    /// New pointer after a reward line from the log: the shown step after the
+    /// one that gives this reward, or None to stay.
+    pub fn complete(&self, cur: usize, reward: &str, mode: &str) -> Option<usize> {
+        let v = self.view(mode);
+        let p = Self::pos(&v, cur);
+        (p..v.len().min(p + REWARD_LOOKAHEAD))
+            .find(|&k| self.steps[v[k]].rewards.iter().any(|r| reward.contains(r)))
+            .map(|k| v[(k + 1).min(v.len() - 1)])
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    impl Guide {
+        fn adv(&self, cur: usize, zone: &str) -> Option<usize> {
+            self.advance(cur, zone, "all")
+        }
+        fn comp(&self, cur: usize, reward: &str) -> Option<usize> {
+            self.complete(cur, reward, "all")
+        }
+    }
 
     fn guide() -> Guide {
         Guide::parse(
@@ -134,44 +183,64 @@ mod tests {
     #[test]
     fn follows_zone_changes() {
         let g = guide();
-        assert_eq!(g.advance(0, "The Riverbank"), None);
-        assert_eq!(g.advance(0, "Clearfell Encampment"), Some(1));
-        assert_eq!(g.advance(1, "Clearfell"), Some(2));
-        assert_eq!(g.advance(2, "Grelwood"), Some(3), "leading 'The' is ignored");
-        assert_eq!(g.advance(3, "Hideout"), None);
+        assert_eq!(g.adv(0, "The Riverbank"), None);
+        assert_eq!(g.adv(0, "Clearfell Encampment"), Some(1));
+        assert_eq!(g.adv(1, "Clearfell"), Some(2));
+        assert_eq!(g.adv(2, "Grelwood"), Some(3), "leading 'The' is ignored");
+        assert_eq!(g.adv(3, "Hideout"), None);
     }
 
     #[test]
     fn town_portal_does_not_skip_ahead() {
         let g = guide();
-        assert_eq!(g.advance(3, "Clearfell Encampment"), None);
-        assert_eq!(g.advance(4, "Clearfell Encampment"), Some(5));
-        assert_eq!(g.advance(5, "The Red Vale"), Some(4), "portal back into the zone");
+        assert_eq!(g.adv(3, "Clearfell Encampment"), None);
+        assert_eq!(g.adv(4, "Clearfell Encampment"), Some(5));
+        assert_eq!(g.adv(5, "The Red Vale"), Some(4), "portal back into the zone");
     }
 
     #[test]
     fn never_moves_back_and_splits_combined_zones() {
         let g = guide();
-        assert_eq!(g.advance(4, "The Riverbank"), None);
-        assert_eq!(g.advance(5, "Heart of the Tribe"), Some(6));
+        assert_eq!(g.adv(4, "The Riverbank"), None);
+        assert_eq!(g.adv(5, "Heart of the Tribe"), Some(6));
     }
 
     #[test]
     fn bundled_guide_parses() {
         let g = Guide::parse(include_str!("../ui/guide.json")).unwrap();
         assert!(g.len() > 100);
-        assert_eq!(g.advance(0, "Clearfell Encampment"), Some(1));
+        assert_eq!(g.adv(0, "Clearfell Encampment"), Some(1));
     }
 
     #[test]
     fn rewards_complete_their_step() {
         let g = Guide::parse(include_str!("../ui/guide.json")).unwrap();
         let cold = "+10% to [Resistances|Cold Resistance].";
-        assert_eq!(g.complete(2, cold), Some(3), "Beira in Clearfell");
-        assert_eq!(g.complete(0, cold), Some(3), "a few steps ahead is fine");
-        assert_eq!(g.complete(3, cold), None);
-        assert_eq!(g.complete(11, "+30 to [Spirit|Spirit]."), Some(12), "King in the Mists");
-        assert_eq!(g.complete(10, "2 Passive Skill Points."), Some(11), "Crowbell");
-        assert_eq!(g.complete(4, "2 Passive Skill Points."), None, "Crowbell is too far ahead");
+        assert_eq!(g.comp(2, cold), Some(3), "Beira in Clearfell");
+        assert_eq!(g.comp(0, cold), Some(3), "a few steps ahead is fine");
+        assert_eq!(g.comp(3, cold), None);
+        assert_eq!(g.comp(11, "+30 to [Spirit|Spirit]."), Some(12), "King in the Mists");
+        assert_eq!(g.comp(10, "2 Passive Skill Points."), Some(11), "Crowbell");
+        assert_eq!(g.comp(4, "2 Passive Skill Points."), None, "Crowbell is too far ahead");
+    }
+
+    #[test]
+    fn route_modes_skip_hidden_steps() {
+        let g = Guide::parse(
+            r#"{"steps":[
+            {"zone":"The Riverbank","tags":["must"]},
+            {"zone":"Clearfell","tags":["buff"]},
+            {"zone":"Clearfell","tags":["optional"]},
+            {"zone":"The Grelwood","tags":["must"]}
+        ]}"#,
+        )
+        .unwrap();
+        assert_eq!(g.step(0, 1, "must"), 3);
+        assert_eq!(g.step(0, 1, "buffs"), 1);
+        assert_eq!(g.step(3, -1, "buffs"), 1);
+        assert_eq!(g.snap(2, "must"), 3, "hidden step snaps forward");
+        assert_eq!(g.advance(0, "Clearfell", "must"), None, "no shown step in Clearfell");
+        assert_eq!(g.advance(0, "Clearfell", "buffs"), Some(1));
+        assert_eq!(g.advance(0, "The Grelwood", "must"), Some(3));
     }
 }

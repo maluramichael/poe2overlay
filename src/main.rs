@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod clip;
 mod game;
 mod guide;
 mod log;
@@ -7,11 +8,71 @@ mod log;
 use game::{Panel, Shared};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
+use std::time::Duration;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Emitter, Manager, State};
-use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
+
+/// Published by poe2speedrun's build.py; one place to update the route.
+const GUIDE_URL: &str = "https://poe2speedrun.malura.de/overlay/guide.json";
+
+/// Shortcut strings as the hotkey parser reads them ("Shift+Space", "Ctrl+Alt+KeyR").
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(default)]
+struct Hotkeys {
+    next: String,
+    prev: String,
+    mini: String,
+    hide: String,
+    settings: String,
+    regex: String,
+}
+
+impl Default for Hotkeys {
+    fn default() -> Self {
+        Hotkeys {
+            next: "Ctrl+Alt+ArrowRight".into(),
+            prev: "Ctrl+Alt+ArrowLeft".into(),
+            mini: "Ctrl+Alt+KeyC".into(),
+            hide: "Ctrl+Alt+KeyG".into(),
+            settings: "Shift+Space".into(),
+            regex: "Ctrl+Alt+KeyR".into(),
+        }
+    }
+}
+
+impl Hotkeys {
+    /// (shortcut, action) pairs. Err names the first entry that does not parse or is taken twice.
+    fn parse(&self) -> Result<Vec<(Shortcut, &'static str)>, String> {
+        let mut out: Vec<(Shortcut, &'static str)> = Vec::new();
+        for (action, s) in [
+            ("next", &self.next),
+            ("prev", &self.prev),
+            ("mini", &self.mini),
+            ("hide", &self.hide),
+            ("settings", &self.settings),
+            ("regex", &self.regex),
+        ] {
+            if s.is_empty() {
+                continue;
+            }
+            let sc: Shortcut = s.parse().map_err(|_| format!("{action}: \"{s}\" ist kein gültiger Hotkey"))?;
+            if let Some((_, other)) = out.iter().find(|(o, _)| *o == sc) {
+                return Err(format!("{action}: \"{s}\" ist schon {other} zugewiesen"));
+            }
+            out.push((sc, action));
+        }
+        Ok(out)
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct Regex {
+    name: String,
+    value: String,
+}
 
 /// Persisted between runs (state.json in the app config dir).
 #[derive(Serialize, Deserialize, Clone)]
@@ -25,15 +86,38 @@ struct Saved {
     mini: bool,
     /// Override for non-standard install paths, e.g. "D:\Games\Path of Exile 2\logs\Client.txt".
     client_log: Option<PathBuf>,
+    /// "all", "buffs" (must + buff) or "must", like the presets on poe2speedrun.
+    route: String,
+    hotkeys: Hotkeys,
+    regexes: Vec<Regex>,
 }
 
 impl Default for Saved {
     fn default() -> Self {
-        Saved { step: 0, lang: "de".into(), x: 24.0, y: 160.0, mini: false, client_log: None }
+        Saved {
+            step: 0,
+            lang: "de".into(),
+            x: 24.0,
+            y: 160.0,
+            mini: false,
+            client_log: None,
+            route: "all".into(),
+            hotkeys: Hotkeys::default(),
+            regexes: Vec::new(),
+        }
     }
 }
 
-/// What the UI renders. Sent whole on every change, it is tiny.
+/// What the settings window can change.
+#[derive(Deserialize)]
+struct Settings {
+    lang: String,
+    route: String,
+    hotkeys: Hotkeys,
+    regexes: Vec<Regex>,
+}
+
+/// What the pages render. Sent whole on every change, it is tiny.
 #[derive(Serialize, Clone, Default)]
 struct Snapshot {
     #[serde(flatten)]
@@ -42,32 +126,39 @@ struct Snapshot {
     char_level: u32,
     area_level: u32,
     log_found: bool,
+    log_path: Option<PathBuf>,
+    /// Hotkeys Windows refused, usually taken by another overlay.
+    hotkey_error: Option<String>,
 }
 
 struct App {
     snap: Mutex<Snapshot>,
-    guide: guide::Guide,
+    /// Parsed guide plus its JSON for the pages.
+    guide: RwLock<(guide::Guide, String)>,
     shared: Arc<Mutex<Shared>>,
-    state_file: PathBuf,
+    bindings: Mutex<Vec<(Shortcut, &'static str)>>,
+    dir: PathBuf,
 }
 
 impl App {
-    /// Apply a change, persist, and push the new snapshot to the UI.
-    fn update(&self, app: &AppHandle, f: impl FnOnce(&mut Snapshot)) {
+    /// Apply a change, persist, and push the new snapshot to the pages.
+    fn update(&self, app: &AppHandle, f: impl FnOnce(&mut Snapshot, &guide::Guide)) {
         let snap = {
+            let guide = &self.guide.read().unwrap().0;
             let mut s = self.snap.lock().unwrap();
-            f(&mut s);
-            s.saved.step = s.saved.step.min(self.guide.len() - 1);
+            f(&mut s, guide);
+            s.saved.step = guide.snap(s.saved.step.min(guide.len() - 1), &s.saved.route);
+            s.log_path = self.shared.lock().unwrap().log.clone();
             s.clone()
         };
-        let _ = std::fs::write(&self.state_file, serde_json::to_string(&snap.saved).unwrap());
+        let _ = std::fs::write(self.dir.join("state.json"), serde_json::to_string_pretty(&snap.saved).unwrap());
         let _ = app.emit("state", snap);
     }
 
     fn on_log(&self, app: &AppHandle, e: log::Event) {
-        self.update(app, |s| match e {
+        self.update(app, |s, g| match e {
             log::Event::Scene(zone) => {
-                if let Some(i) = self.guide.advance(s.saved.step, &zone) {
+                if let Some(i) = g.advance(s.saved.step, &zone, &s.saved.route) {
                     s.saved.step = i;
                 }
                 s.zone = zone;
@@ -76,7 +167,7 @@ impl App {
             log::Event::Level(l) => s.char_level = l,
             log::Event::Opened => s.log_found = true,
             log::Event::Reward(r) => {
-                if let Some(i) = self.guide.complete(s.saved.step, &r) {
+                if let Some(i) = g.complete(s.saved.step, &r, &s.saved.route) {
                     s.saved.step = i;
                 }
             }
@@ -84,13 +175,96 @@ impl App {
     }
 
     fn step(&self, app: &AppHandle, delta: i64) {
-        self.update(app, |s| s.saved.step = (s.saved.step as i64 + delta).max(0) as usize);
+        self.update(app, |s, g| s.saved.step = g.step(s.saved.step, delta, &s.saved.route));
     }
+
+    /// Swap in a new guide if it parses and differs. Tells the pages to reload it.
+    fn set_guide(&self, app: &AppHandle, json: String) -> bool {
+        if self.guide.read().unwrap().1 == json {
+            return true;
+        }
+        let Ok(parsed) = guide::Guide::parse(&json) else { return false };
+        *self.guide.write().unwrap() = (parsed, json);
+        self.update(app, |_, _| {});
+        let _ = app.emit("guide", ());
+        true
+    }
+
+    /// Registers the saved hotkeys. Err lists the ones Windows refused (taken by another app).
+    fn register_hotkeys(&self, app: &AppHandle) -> Result<(), String> {
+        let bindings = self.snap.lock().unwrap().saved.hotkeys.parse()?;
+        let gs = app.global_shortcut();
+        let _ = gs.unregister_all();
+        let failed: Vec<&str> = bindings.iter().filter(|(s, _)| gs.register(*s).is_err()).map(|(_, a)| *a).collect();
+        *self.bindings.lock().unwrap() = bindings;
+        let err = (!failed.is_empty()).then(|| format!("Hotkey von einer anderen App belegt: {}", failed.join(", ")));
+        self.update(app, |s, _| s.hotkey_error = err.clone());
+        err.map_or(Ok(()), Err)
+    }
+
+    fn action(&self, app: &AppHandle, action: &str) {
+        match action {
+            "next" => self.step(app, 1),
+            "prev" => self.step(app, -1),
+            "mini" => self.update(app, |s, _| s.saved.mini = !s.saved.mini),
+            "hide" => {
+                let mut s = self.shared.lock().unwrap();
+                s.user_hidden = !s.user_hidden;
+            }
+            view => toggle_menu(app, view),
+        }
+    }
+}
+
+/// Opens the settings or regex view over the game, or closes it if it is open.
+fn toggle_menu(app: &AppHandle, view: &str) {
+    let Some(menu) = app.get_webview_window("menu") else { return };
+    if menu.is_visible().unwrap_or(false) {
+        close_menu(app);
+        return;
+    }
+    let (w, h) = if view == "settings" { (560.0, 640.0) } else { (460.0, 340.0) };
+    game::center_on_game(&menu, &app.state::<App>().shared.lock().unwrap(), w, h);
+    // While editing hotkeys, Windows must not swallow the keys being recorded.
+    // They come back when the menu closes or loses focus.
+    if view == "settings" {
+        let _ = app.global_shortcut().unregister_all();
+    }
+    let _ = menu.emit("menu-view", view);
+    let _ = menu.show();
+    let _ = menu.set_focus();
+}
+
+fn close_menu(app: &AppHandle) {
+    if let Some(menu) = app.get_webview_window("menu") {
+        let _ = menu.hide();
+    }
+    let st = app.state::<App>();
+    let _ = st.register_hotkeys(app);
+    game::focus_game(&st.shared.lock().unwrap());
+}
+
+/// Fetches the current route in the background; keeps a copy for offline starts.
+fn refresh_guide(app: AppHandle) {
+    std::thread::spawn(move || {
+        let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(Duration::from_secs(10))).build().into();
+        let Ok(mut res) = agent.get(GUIDE_URL).call() else { return };
+        let Ok(json) = res.body_mut().read_to_string() else { return };
+        let st = app.state::<App>();
+        if st.set_guide(&app, json.clone()) {
+            let _ = std::fs::write(st.dir.join("guide.json"), json);
+        }
+    });
 }
 
 #[tauri::command]
 fn snapshot(app: State<App>) -> Snapshot {
     app.snap.lock().unwrap().clone()
+}
+
+#[tauri::command]
+fn guide(app: State<App>) -> String {
+    app.guide.read().unwrap().1.clone()
 }
 
 #[tauri::command]
@@ -100,7 +274,7 @@ fn step(handle: AppHandle, app: State<App>, delta: i64) {
 
 #[tauri::command]
 fn toggle_mini(handle: AppHandle, app: State<App>) {
-    app.update(&handle, |s| s.saved.mini = !s.saved.mini);
+    app.update(&handle, |s, _| s.saved.mini = !s.saved.mini);
 }
 
 /// The window follows the panel's rendered size (CSS pixels from the page).
@@ -117,83 +291,123 @@ fn panel_size(window: tauri::WebviewWindow, app: State<App>, w: f64, h: f64) {
 fn drag(window: tauri::WebviewWindow, handle: AppHandle, app: State<App>, phase: String) {
     let done = game::drag(&window, &mut app.shared.lock().unwrap(), &phase);
     if let Some((x, y)) = done {
-        app.update(&handle, |s| (s.saved.x, s.saved.y) = (x as f64, y as f64));
+        app.update(&handle, |s, _| (s.saved.x, s.saved.y) = (x as f64, y as f64));
     }
 }
 
-fn main() {
-    let next = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::ArrowRight);
-    let prev = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::ArrowLeft);
-    let hide = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyG);
-    let mini = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyC);
+/// Saves the settings window. Bad hotkeys are rejected and nothing changes.
+#[tauri::command]
+fn save_settings(handle: AppHandle, app: State<App>, settings: Settings) -> Result<(), String> {
+    settings.hotkeys.parse()?;
+    app.update(&handle, |s, _| {
+        s.saved.lang = settings.lang;
+        s.saved.route = settings.route;
+        s.saved.hotkeys = settings.hotkeys;
+        s.saved.regexes = settings.regexes.into_iter().filter(|r| !r.value.trim().is_empty()).collect();
+    });
+    app.register_hotkeys(&handle)
+}
 
+#[tauri::command]
+fn close(handle: AppHandle) {
+    close_menu(&handle);
+}
+
+#[tauri::command]
+fn copy_regex(handle: AppHandle, value: String) -> Result<(), String> {
+    clip::copy(&value).map_err(|e| e.to_string())?;
+    close_menu(&handle);
+    Ok(())
+}
+
+#[tauri::command]
+fn reload_guide(handle: AppHandle) {
+    refresh_guide(handle);
+}
+
+fn main() {
     tauri::Builder::default()
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(move |handle, shortcut, event| {
+                .with_handler(|handle, shortcut, event| {
                     if event.state != ShortcutState::Pressed {
                         return;
                     }
                     let app = handle.state::<App>();
-                    if shortcut == &next {
-                        app.step(handle, 1);
-                    } else if shortcut == &prev {
-                        app.step(handle, -1);
-                    } else if shortcut == &mini {
-                        app.update(handle, |s| s.saved.mini = !s.saved.mini);
-                    } else if shortcut == &hide {
-                        let mut s = app.shared.lock().unwrap();
-                        s.user_hidden = !s.user_hidden;
+                    let action = app.bindings.lock().unwrap().iter().find(|(s, _)| s == shortcut).map(|(_, a)| *a);
+                    if let Some(a) = action {
+                        app.action(handle, a);
                     }
                 })
                 .build(),
         )
-        .invoke_handler(tauri::generate_handler![snapshot, step, toggle_mini, panel_size, drag])
-        .setup(move |tauri_app| {
-            let handle = tauri_app.handle().clone();
-            for s in [next, prev, hide, mini] {
-                if let Err(e) = handle.global_shortcut().register(s) {
-                    eprintln!("hotkey {s:?} not available: {e}");
-                }
+        .invoke_handler(tauri::generate_handler![
+            snapshot,
+            guide,
+            step,
+            toggle_mini,
+            panel_size,
+            drag,
+            save_settings,
+            close,
+            copy_regex,
+            reload_guide
+        ])
+        .on_window_event(|window, event| {
+            // Clicking back into the game closes the menu.
+            if window.label() == "menu" && matches!(event, WindowEvent::Focused(false)) {
+                let _ = window.hide();
+                let app = window.app_handle();
+                let _ = app.state::<App>().register_hotkeys(app);
             }
-
+        })
+        .setup(|tauri_app| {
+            let handle = tauri_app.handle().clone();
             let dir = handle.path().app_config_dir()?;
             std::fs::create_dir_all(&dir)?;
-            let state_file = dir.join("state.json");
-            let saved: Saved = std::fs::read_to_string(&state_file).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+            let saved: Saved = std::fs::read_to_string(dir.join("state.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+            // Last fetched route if there is one, else the one built in.
+            let json = std::fs::read_to_string(dir.join("guide.json"))
+                .ok()
+                .filter(|j| guide::Guide::parse(j).is_ok())
+                .unwrap_or_else(|| include_str!("../ui/guide.json").to_string());
             let pinned = saved.client_log.clone().filter(|p| p.is_file());
+            let menu = tauri_app.get_webview_window("menu").unwrap();
             let shared = Arc::new(Mutex::new(Shared {
                 panel: Panel { x: saved.x as i32, y: saved.y as i32, ..Default::default() },
                 log_pinned: pinned.is_some(),
                 log: pinned.or_else(log::find_client_log),
+                menu_hwnd: menu.hwnd().map_or(0, |h| h.0 as isize),
                 ..Default::default()
             }));
             tauri_app.manage(App {
                 snap: Mutex::new(Snapshot { saved, ..Default::default() }),
-                guide: guide::Guide::parse(include_str!("../ui/guide.json"))?,
+                guide: RwLock::new((guide::Guide::parse(&json)?, json)),
                 shared: shared.clone(),
-                state_file,
+                bindings: Mutex::new(Vec::new()),
+                dir,
             });
+            if let Err(e) = handle.state::<App>().register_hotkeys(&handle) {
+                eprintln!("hotkeys: {e}");
+            }
+            refresh_guide(handle.clone());
 
             let (h, sh) = (handle.clone(), shared.clone());
             log::spawn_tail(move || sh.lock().unwrap().log.clone(), move |e| h.state::<App>().on_log(&h, e));
             game::spawn_tracker(tauri_app.get_webview_window("overlay").unwrap(), shared);
 
-            let lang = MenuItem::with_id(tauri_app, "lang", "Sprache / Language", true, None::<&str>)?;
+            let settings = MenuItem::with_id(tauri_app, "settings", "Einstellungen", true, None::<&str>)?;
             let reset = MenuItem::with_id(tauri_app, "reset", "Guide auf Anfang setzen", true, None::<&str>)?;
             let quit = MenuItem::with_id(tauri_app, "quit", "Beenden", true, None::<&str>)?;
             TrayIconBuilder::new()
                 .icon(tauri_app.default_window_icon().unwrap().clone())
                 .tooltip("PoE2 Overlay")
-                .menu(&Menu::with_items(tauri_app, &[&lang, &reset, &quit])?)
-                .on_menu_event(|handle, event| {
-                    let app = handle.state::<App>();
-                    match event.id.as_ref() {
-                        "lang" => app.update(handle, |s| s.saved.lang = if s.saved.lang == "de" { "en".into() } else { "de".into() }),
-                        "reset" => app.update(handle, |s| s.saved.step = 0),
-                        "quit" => handle.exit(0),
-                        _ => {}
-                    }
+                .menu(&Menu::with_items(tauri_app, &[&settings, &reset, &quit])?)
+                .on_menu_event(|handle, event| match event.id.as_ref() {
+                    "settings" => toggle_menu(handle, "settings"),
+                    "reset" => handle.state::<App>().update(handle, |s, _| s.saved.step = 0),
+                    "quit" => handle.exit(0),
+                    _ => {}
                 })
                 .build(tauri_app)?;
             Ok(())
@@ -207,6 +421,16 @@ mod tests {
     #[test]
     fn existing_state_file_still_loads() {
         let s: super::Saved = serde_json::from_str(r#"{"step":8,"lang":"de","x":2646.0,"y":851.0,"mini":false,"client_log":null}"#).unwrap();
-        assert_eq!((s.step, s.x as i32), (8, 2646));
+        assert_eq!((s.step, s.x as i32, s.route.as_str()), (8, 2646, "all"));
+    }
+
+    #[test]
+    fn hotkeys_parse_and_reject_duplicates() {
+        let mut h = super::Hotkeys::default();
+        assert_eq!(h.parse().unwrap().len(), 6);
+        h.regex = h.next.clone();
+        assert!(h.parse().unwrap_err().contains("schon next"));
+        h.regex = "Ctrl+Nonsense".into();
+        assert!(h.parse().is_err());
     }
 }

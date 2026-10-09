@@ -28,10 +28,18 @@ function goTo(s) {
   return s.zone.split("->")[0].split("/")[0].trim();
 }
 
-// First later step in a different zone: where to go once this step is done.
+// Route mode like the presets on poe2speedrun (same rule as src/guide.rs).
+function shown(s) {
+  if (state.route === "must") return s.tags.includes("must");
+  if (state.route === "buffs") return s.tags.includes("must") || s.tags.includes("buff");
+  return true;
+}
+const after = (i) => guide.steps.slice(i + 1).filter(shown);
+
+// First later shown step in a different zone: where to go once this step is done.
 function nextZone(i) {
   const here = zonesOf(guide.steps[i].zone);
-  const n = guide.steps.slice(i + 1).find((n) => !zonesOf(n.zone).some((z) => here.includes(z)));
+  const n = after(i).find((n) => !zonesOf(n.zone).some((z) => here.includes(z)));
   return n ? n.zone.split("->")[0].split("/")[0].trim() : "";
 }
 
@@ -42,7 +50,8 @@ function render() {
   panel.classList.toggle("mini", state.mini);
   panel.hidden = false;
 
-  $("act").textContent = `${t(act.short)} · ${i + 1}/${guide.steps.length}`;
+  const view = guide.steps.filter(shown);
+  $("act").textContent = `${t(act.short)} · ${view.indexOf(s) + 1}/${view.length}`;
   const lv = $("levels");
   lv.textContent = state.char_level ? `Lvl ${state.char_level}` + (state.area_level ? ` · ${state.lang === "de" ? "Gebiet" : "Area"} ${state.area_level}` : "") : "";
   lv.classList.toggle("warn", levelWarn(state.char_level, state.area_level));
@@ -71,11 +80,13 @@ function render() {
     (s.hint ? `<div class="hint">${md(t(s.hint))}</div>` : "") +
     (s.notes.length ? `<ul class="notes">${s.notes.map((n) => `<li>${md(t(n))}</li>`).join("")}</ul>` : "");
 
-  $("upcoming").innerHTML = guide.steps
-    .slice(i + 1, i + 3)
+  $("upcoming").innerHTML = after(i)
+    .slice(0, 2)
     .map((n) => `<li><span class="z">${esc(n.zone)}</span>${md(t(n.text))}</li>`)
     .join("");
   $("nolog").hidden = state.log_found;
+  $("hkerr").hidden = !state.hotkey_error;
+  $("hkerr").textContent = state.hotkey_error || "";
 }
 
 // The window is exactly the panel: Rust sizes it to what we render here.
@@ -112,11 +123,16 @@ panel.addEventListener("pointerdown", (e) => {
 });
 
 (async () => {
-  guide = await (await fetch("guide.json")).json();
+  guide = JSON.parse(await invoke("guide"));
   state = await invoke("snapshot");
   render();
   listen("state", (e) => {
     state = e.payload;
+    render();
+  });
+  // A newer route arrived from poe2speedrun.
+  listen("guide", async () => {
+    guide = JSON.parse(await invoke("guide"));
     render();
   });
 })();

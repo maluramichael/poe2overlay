@@ -42,11 +42,11 @@ b{color:var(--ink);font-weight:600}
 #upcoming .z{color:var(--sand);opacity:.7;margin-right:6px;font-variant:small-caps}
 #upcoming b{color:inherit;font-weight:400}
 
-#nolog{margin:0;padding:6px 12px 8px;border-top:1px solid var(--line);font-size:12px;color:var(--bad)}
+#hkerr,#nolog{margin:0;padding:6px 12px 8px;border-top:1px solid var(--line);font-size:12px;color:var(--bad)}
 
 /* mini mode: one line, task (or where to go + task) */
 #panel.mini{width:max-content;max-width:640px;cursor:move}
-.mini #bar,.mini #upcoming,.mini #nolog{display:none}
+.mini #bar,.mini #upcoming,.mini #nolog,.mini #hkerr{display:none}
 .mini #current{padding:4px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:14px}
 .mini .goal{display:inline;font-size:14px}
 .mini .go{display:inline;margin:0;padding:0;background:none;border:0}

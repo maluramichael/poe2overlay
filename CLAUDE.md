@@ -11,7 +11,8 @@ Open-Source-Ingame-Overlay für Path of Exile 2 (Ersatz für poeoverlay.com ohne
 | `src/guide.rs` | Zonen-Matching: Pointer springt beim Zonenwechsel vor (max. 8 Schritte, nie zurück, Stadt nur als direkt nächster Schritt) |
 | `src/game.rs` | Win32: Fenster `Path of Exile 2` finden, Overlay-Fenster = genau das Panel, an Offset `x,y` (physische px) im Client-Bereich, nur bei Spiel im Vordergrund sichtbar, Ziehen über die echte Cursorposition |
 | `ui/` | HTML/CSS/JS (ohne Build-Schritt), `ui/guide.json` = generierte Route |
-| `scripts/import_guide.py` | Route aus `../poe2` (acts/*.json) nach `ui/guide.json`; Einträge mit veralteter `league` fallen raus |
+| `src/clip.rs` | Text in die Windows-Zwischenablage (Regexe) |
+| `ui/menu.*` | Zweites Fenster `menu`: Einstellungen (`Shift+Space`) und Regex-Liste; fokussierbar, beim Schließen bekommt das Spiel den Fokus zurück, in den Einstellungen sind die globalen Hotkeys pausiert |
 | `scripts/make_icon.py` | erzeugt `icons/icon.ico` |
 
 ## Wichtig
@@ -23,7 +24,8 @@ Open-Source-Ingame-Overlay für Path of Exile 2 (Ersatz für poeoverlay.com ohne
 - Panelgröße kommt per ResizeObserver vom JS in CSS-px, Rust rechnet mit `scale_factor` auf physische px um und setzt die Fenstergröße.
 - Log-Pfad: sobald das Spielfenster da ist, `logs\Client.txt` neben der exe des Spielprozesses (Michael spielt über Steam auf `D:\Steam\...`, der Standalone-Log unter C: ist veraltet). Prüfen mit `cargo test -- --ignored` bei laufendem Spiel.
 - Log-Zeilen-Formate stehen als Tests in `src/log.rs` (aus echtem PoE2-Log, 0.5.x).
-- Inhalte der Route werden in `../poe2` gepflegt, nicht hier.
+- Inhalte der Route werden in `../poe2` gepflegt, nicht hier. `build.py` dort schreibt `dist/overlay/guide.json`, live unter `https://poe2speedrun.malura.de/overlay/guide.json`; das Overlay holt sie beim Start (Cache `guide.json` im Config-Ordner, Fallback `ui/guide.json`). Schritt-Index hängt am Index: neue Schritte verschieben gespeicherten Fortschritt.
+- Route-Modus (`all`/`buffs`/`must`) wie die Presets der Webseite; Regel steht doppelt in `src/guide.rs::view` und `ui/app.js::shown`.
 
 ## Testen
 
