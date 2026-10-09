@@ -224,7 +224,9 @@ fn toggle_menu(app: &AppHandle, view: &str) {
         return;
     }
     let (w, h) = if view == "settings" { (560.0, 640.0) } else { (460.0, 340.0) };
-    game::center_on_game(&menu, &app.state::<App>().shared.lock().unwrap(), w, h);
+    // Copy out: window getters wait for the main thread, never call them holding a lock.
+    let game = app.state::<App>().shared.lock().unwrap().game;
+    game::center_on_game(&menu, game, w, h);
     // While editing hotkeys, Windows must not swallow the keys being recorded.
     // They come back when the menu closes or loses focus.
     if view == "settings" {
@@ -241,7 +243,7 @@ fn close_menu(app: &AppHandle) {
     }
     let st = app.state::<App>();
     let _ = st.register_hotkeys(app);
-    game::focus_game(&st.shared.lock().unwrap());
+    game::focus_game(st.shared.lock().unwrap().game_hwnd);
 }
 
 /// Fetches the current route in the background; keeps a copy for offline starts.
@@ -333,10 +335,12 @@ fn main() {
                     if event.state != ShortcutState::Pressed {
                         return;
                     }
-                    let app = handle.state::<App>();
-                    let action = app.bindings.lock().unwrap().iter().find(|(s, _)| s == shortcut).map(|(_, a)| *a);
+                    let action = handle.state::<App>().bindings.lock().unwrap().iter().find(|(s, _)| s == shortcut).map(|(_, a)| *a);
+                    // The plugin holds its shortcut lock while calling us; actions that
+                    // (un)register hotkeys would deadlock here, so they run on their own thread.
                     if let Some(a) = action {
-                        app.action(handle, a);
+                        let h = handle.clone();
+                        std::thread::spawn(move || h.state::<App>().action(&h, a));
                     }
                 })
                 .build(),

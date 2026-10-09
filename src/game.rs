@@ -47,18 +47,18 @@ pub struct Shared {
 }
 
 /// Hands the keyboard back to the game after the menu closes.
-pub fn focus_game(s: &Shared) {
-    if s.game_hwnd != 0 {
-        let _ = unsafe { SetForegroundWindow(HWND(s.game_hwnd as _)) };
+pub fn focus_game(game_hwnd: isize) {
+    if game_hwnd != 0 {
+        let _ = unsafe { SetForegroundWindow(HWND(game_hwnd as _)) };
     }
 }
 
 /// Sizes a window (logical px) and puts it in the middle of the game.
-pub fn center_on_game(win: &WebviewWindow, s: &Shared, w: f64, h: f64) {
+pub fn center_on_game(win: &WebviewWindow, game: Option<RECT>, w: f64, h: f64) {
     let k = win.scale_factor().unwrap_or(1.0);
     let (pw, ph) = ((w * k) as i32, (h * k) as i32);
     let _ = win.set_size(PhysicalSize::new(pw as u32, ph as u32));
-    if let Some(g) = s.game {
+    if let Some(g) = game {
         let _ = win.set_position(PhysicalPosition::new(g.left + (g.right - g.left - pw) / 2, g.top + (g.bottom - g.top - ph) / 2));
     }
 }
