@@ -33,4 +33,10 @@ Open-Source-Ingame-Overlay für Path of Exile 2 (Ersatz für poeoverlay.com ohne
 
 `cargo test`. E2E ohne Spiel: PowerShell-WinForms-Fenster öffnen und das Overlay mit `POE2OVERLAY_GAME_TITLE=<Titel>` darauf zeigen lassen (kollidiert so nicht mit einem laufenden Spiel). **Keine simulierten Klicks/Tasten, solange PoE2 läuft:** Michael kann jederzeit zurück ins Spiel wechseln, Eingaben landen dann im Bosskampf. Nur lesend prüfen (GetWindowRect, Styles) oder Michael testen lassen, in `state.json` `client_log` auf eine Test-Datei setzen, SCENE-Zeilen anhängen, Hotkeys per `keybd_event`. In PowerShell-P/Invoke `[NullString]::Value` statt `$null` an `FindWindow` geben.
 
+## Repos und Release
+
+- Remotes: `origin` = `git@vault:maluramichael/poe2overlay.git`, `github` = https://github.com/maluramichael/poe2overlay (öffentlich). Immer beide pushen.
+- `.github/workflows/build.yml`: auf jedem Push `cargo test` + Installer (NSIS `setup.exe` + `.msi`) als Artefakt; Tag `vX.Y.Z` erstellt ein GitHub-Release, Tag muss zu `version` in `tauri.conf.json` passen (Workflow prüft das). Versionen in `tauri.conf.json` und `Cargo.toml` gemeinsam anheben.
+- Lokal Installer bauen ohne das laufende Overlay zu stoppen: `CARGO_TARGET_DIR=target-bundle npx --yes @tauri-apps/cli@2.12.1 build`.
+
 Commits mit `--author="Michael Malura <michael@malura.de>"`, ohne Co-Authored-By.
