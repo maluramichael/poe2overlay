@@ -4,7 +4,7 @@ mod game;
 mod guide;
 mod log;
 
-use game::{HitRect, Shared};
+use game::{Panel, Shared};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -19,6 +19,7 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 struct Saved {
     step: usize,
     lang: String,
+    /// Panel offset from the game's top left corner, physical pixels.
     x: f64,
     y: f64,
     mini: bool,
@@ -102,17 +103,22 @@ fn toggle_mini(handle: AppHandle, app: State<App>) {
     app.update(&handle, |s| s.saved.mini = !s.saved.mini);
 }
 
+/// The window follows the panel's rendered size (CSS pixels from the page).
 #[tauri::command]
-fn save_pos(handle: AppHandle, app: State<App>, x: f64, y: f64) {
-    app.update(&handle, |s| (s.saved.x, s.saved.y) = (x, y));
+fn panel_size(window: tauri::WebviewWindow, app: State<App>, w: f64, h: f64) {
+    let k = window.scale_factor().unwrap_or(1.0);
+    let mut s = app.shared.lock().unwrap();
+    (s.panel.w, s.panel.h) = ((w * k).ceil() as i32, (h * k).ceil() as i32);
+    game::place(&window, &mut s);
 }
 
-/// Panel bounds in CSS pixels; the tracker needs physical ones.
+/// phase: "start" | "move" | "end". The offset is saved on "end".
 #[tauri::command]
-fn set_hit_rect(window: tauri::WebviewWindow, app: State<App>, x: f64, y: f64, w: f64, h: f64) {
-    let k = window.scale_factor().unwrap_or(1.0);
-    let r = |v: f64| (v * k).round() as i32;
-    app.shared.lock().unwrap().hit = HitRect { x: r(x), y: r(y), w: r(w), h: r(h) };
+fn drag(window: tauri::WebviewWindow, handle: AppHandle, app: State<App>, phase: String) {
+    let done = game::drag(&window, &mut app.shared.lock().unwrap(), &phase);
+    if let Some((x, y)) = done {
+        app.update(&handle, |s| (s.saved.x, s.saved.y) = (x as f64, y as f64));
+    }
 }
 
 fn main() {
@@ -142,7 +148,7 @@ fn main() {
                 })
                 .build(),
         )
-        .invoke_handler(tauri::generate_handler![snapshot, step, toggle_mini, save_pos, set_hit_rect])
+        .invoke_handler(tauri::generate_handler![snapshot, step, toggle_mini, panel_size, drag])
         .setup(move |tauri_app| {
             let handle = tauri_app.handle().clone();
             for s in [next, prev, hide, mini] {
@@ -157,10 +163,10 @@ fn main() {
             let saved: Saved = std::fs::read_to_string(&state_file).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
             let pinned = saved.client_log.clone().filter(|p| p.is_file());
             let shared = Arc::new(Mutex::new(Shared {
-                hit: HitRect::default(),
-                user_hidden: false,
+                panel: Panel { x: saved.x as i32, y: saved.y as i32, ..Default::default() },
                 log_pinned: pinned.is_some(),
                 log: pinned.or_else(log::find_client_log),
+                ..Default::default()
             }));
             tauri_app.manage(App {
                 snap: Mutex::new(Snapshot { saved, ..Default::default() }),
@@ -194,4 +200,13 @@ fn main() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn existing_state_file_still_loads() {
+        let s: super::Saved = serde_json::from_str(r#"{"step":8,"lang":"de","x":2646.0,"y":851.0,"mini":false,"client_log":null}"#).unwrap();
+        assert_eq!((s.step, s.x as i32), (8, 2646));
+    }
 }

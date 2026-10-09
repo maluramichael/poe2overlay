@@ -1,5 +1,7 @@
-//! Keeps the overlay glued to the game window: same position and size,
-//! visible only while the game is in front, clickable only over the panel.
+//! Keeps the overlay window on the game: the window is exactly the panel,
+//! placed at the saved offset inside the game's client area, and visible only
+//! while the game is in front. No click-through needed: everything around the
+//! panel is the game itself.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -10,28 +12,69 @@ use windows::core::{HSTRING, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, HWND, POINT, RECT};
 use windows::Win32::Graphics::Gdi::ClientToScreen;
 use windows::Win32::System::Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION};
-use windows::Win32::UI::WindowsAndMessaging::{
-    FindWindowW, GetClientRect, GetCursorPos, GetForegroundWindow, GetWindowLongPtrW, GetWindowThreadProcessId, IsIconic, SetWindowLongPtrW,
-    GWL_EXSTYLE, WS_EX_TRANSPARENT,
-};
+use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, GetClientRect, GetCursorPos, GetForegroundWindow, GetWindowThreadProcessId, IsIconic};
 
-/// Panel rectangle in physical pixels, relative to the overlay window.
+/// Panel offset from the game's client area and its size, physical pixels.
 #[derive(Default, Clone, Copy)]
-pub struct HitRect {
+pub struct Panel {
     pub x: i32,
     pub y: i32,
     pub w: i32,
     pub h: i32,
 }
 
+#[derive(Default)]
 pub struct Shared {
-    pub hit: HitRect,
+    pub panel: Panel,
     /// Set by the user hotkey: stays hidden even while the game has focus.
     pub user_hidden: bool,
     /// Client.txt to follow. The tracker points it at the running game's log
     /// unless the user pinned a path in state.json.
     pub log: Option<PathBuf>,
     pub log_pinned: bool,
+    /// Game client area on screen, None while there is no game window.
+    pub(crate) game: Option<RECT>,
+    /// Bounds last given to the overlay window.
+    pub(crate) placed: RECT,
+    /// While dragging: cursor and panel offset at the start.
+    pub(crate) drag: Option<(POINT, i32, i32)>,
+}
+
+/// Moves and sizes the overlay window to the panel, keeping it inside the game.
+pub fn place(win: &WebviewWindow, s: &mut Shared) {
+    let (Some(g), p) = (s.game, s.panel) else { return };
+    if p.w == 0 || p.h == 0 {
+        return;
+    }
+    s.panel.x = p.x.clamp(0, (g.right - g.left - p.w).max(0));
+    s.panel.y = p.y.clamp(0, (g.bottom - g.top - p.h).max(0));
+    let r = RECT { left: g.left + s.panel.x, top: g.top + s.panel.y, right: g.left + s.panel.x + p.w, bottom: g.top + s.panel.y + p.h };
+    if r != s.placed {
+        let _ = win.set_position(PhysicalPosition::new(r.left, r.top));
+        let _ = win.set_size(PhysicalSize::new(p.w as u32, p.h as u32));
+        s.placed = r;
+    }
+}
+
+/// Drag by the real cursor position (the window moves under the mouse, so
+/// page coordinates would chase themselves). Returns the final offset on "end".
+pub fn drag(win: &WebviewWindow, s: &mut Shared, phase: &str) -> Option<(i32, i32)> {
+    let mut cur = POINT::default();
+    unsafe { GetCursorPos(&mut cur) }.ok()?;
+    match (phase, s.drag) {
+        ("start", _) => s.drag = Some((cur, s.panel.x, s.panel.y)),
+        ("move", Some((c0, x0, y0))) => {
+            s.panel.x = x0 + cur.x - c0.x;
+            s.panel.y = y0 + cur.y - c0.y;
+            place(win, s);
+        }
+        ("end", Some(_)) => {
+            s.drag = None;
+            return Some((s.panel.x, s.panel.y));
+        }
+        _ => {}
+    }
+    None
 }
 
 /// `<game dir>\logs\Client.txt` of the process that owns the window.
@@ -60,64 +103,31 @@ fn client_rect(hwnd: HWND) -> Option<RECT> {
     Some(RECT { left: origin.x, top: origin.y, right: origin.x + r.right, bottom: origin.y + r.bottom })
 }
 
-/// Click-through on or off by toggling only WS_EX_TRANSPARENT. Tauri's
-/// set_ignore_cursor_events(false) also drops WS_EX_LAYERED, which throws
-/// away the transparent surface and flashes the window white (Electron keeps
-/// LAYERED on transparent windows for the same reason). Checked every tick,
-/// because tao re-applies its own styles on show/hide.
-fn set_click_through(hwnd: HWND, on: bool) {
-    let flag = WS_EX_TRANSPARENT.0 as isize;
-    unsafe {
-        let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-        if (ex & flag != 0) != on {
-            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex ^ flag);
-        }
-    }
-}
-
 pub fn spawn_tracker(win: WebviewWindow, shared: Arc<Mutex<Shared>>) {
     // Test knob: point the overlay at another window while the real game runs.
     let title = HSTRING::from(std::env::var("POE2OVERLAY_GAME_TITLE").unwrap_or_else(|_| "Path of Exile 2".into()));
     thread::spawn(move || {
-        let (mut visible, mut last_rect, mut last_game) = (false, RECT::default(), None);
-        // Sets WS_EX_LAYERED | WS_EX_TRANSPARENT once; tao keeps both from here on.
-        let _ = win.set_ignore_cursor_events(true);
-        // tauri hands out its own windows-crate version of HWND
-        let Ok(overlay) = win.hwnd().map(|h| HWND(h.0)) else { return };
+        let (mut visible, mut last_game) = (false, None);
         loop {
             // ponytail: 100 ms polling, switch to SetWinEventHook if the lag ever shows
             thread::sleep(Duration::from_millis(100));
             let game = unsafe { FindWindowW(None, &title) }.ok();
-            let (hit, user_hidden) = {
-                let mut s = shared.lock().unwrap();
-                if game.is_some() && game != last_game && !s.log_pinned {
-                    if let Some(log) = game.and_then(game_log) {
-                        s.log = Some(log);
-                    }
-                }
-                (s.hit, s.user_hidden)
-            };
-            last_game = game;
             let in_front = game.is_some_and(|g| unsafe { GetForegroundWindow() == g && !IsIconic(g).as_bool() });
             let rect = game.and_then(client_rect).filter(|r| r.right > r.left);
-            let want_visible = in_front && rect.is_some() && !user_hidden;
-
-            if let Some(r) = rect.filter(|r| *r != last_rect) {
-                let _ = win.set_position(PhysicalPosition::new(r.left, r.top));
-                let _ = win.set_size(PhysicalSize::new((r.right - r.left) as u32, (r.bottom - r.top) as u32));
-                last_rect = r;
+            let mut s = shared.lock().unwrap();
+            if game.is_some() && game != last_game && !s.log_pinned {
+                if let Some(log) = game.and_then(game_log) {
+                    s.log = Some(log);
+                }
             }
+            last_game = game;
+            s.game = rect;
+            place(&win, &mut s);
+            let want_visible = in_front && rect.is_some() && !s.user_hidden;
             if want_visible != visible {
                 let _ = if want_visible { win.show() } else { win.hide() };
                 visible = want_visible;
             }
-
-            let mut cur = POINT::default();
-            let over_panel = visible
-                && unsafe { GetCursorPos(&mut cur) }.is_ok()
-                && (hit.x..hit.x + hit.w).contains(&(cur.x - last_rect.left))
-                && (hit.y..hit.y + hit.h).contains(&(cur.y - last_rect.top));
-            set_click_through(overlay, !over_panel);
         }
     });
 }

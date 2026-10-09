@@ -8,7 +8,7 @@
 html,body{margin:0;height:100%;background:transparent;overflow:hidden;user-select:none}
 body{color:var(--ink);font:15px/1.4 var(--serif);-webkit-font-smoothing:antialiased}
 
-#panel{position:absolute;width:380px;background:var(--panel);border:1px solid var(--rule-2);border-radius:3px}
+#panel{position:absolute;left:0;top:0;box-sizing:border-box;width:380px;background:var(--panel);border:1px solid var(--rule-2);border-radius:3px}
 #bar{display:flex;align-items:center;gap:8px;padding:5px 6px 5px 12px;border-bottom:1px solid var(--line);cursor:move}
 #act{flex:1;font-variant:small-caps;letter-spacing:.04em;color:var(--sand)}
 #levels{font:12px/1 var(--num);font-variant-numeric:tabular-nums;color:var(--ink-3)}
@@ -45,7 +45,7 @@ b{color:var(--ink);font-weight:600}
 #nolog{margin:0;padding:6px 12px 8px;border-top:1px solid var(--line);font-size:12px;color:var(--bad)}
 
 /* mini mode: one line, task (or where to go + task) */
-#panel.mini{width:auto;max-width:640px;cursor:move}
+#panel.mini{width:max-content;max-width:640px;cursor:move}
 .mini #bar,.mini #upcoming,.mini #nolog{display:none}
 .mini #current{padding:4px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:14px}
 .mini .goal{display:inline;font-size:14px}

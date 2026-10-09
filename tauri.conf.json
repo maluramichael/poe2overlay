@@ -10,8 +10,8 @@
       {
         "label": "overlay",
         "title": "PoE2 Overlay",
-        "width": 800,
-        "height": 600,
+        "width": 380,
+        "height": 200,
         "transparent": true,
         "decorations": false,
         "alwaysOnTop": true,

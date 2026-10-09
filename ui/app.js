@@ -41,8 +41,6 @@ function render() {
   document.documentElement.lang = state.lang;
   panel.classList.toggle("mini", state.mini);
   panel.hidden = false;
-  panel.style.left = state.x + "px";
-  panel.style.top = state.y + "px";
 
   $("act").textContent = `${t(act.short)} · ${i + 1}/${guide.steps.length}`;
   const lv = $("levels");
@@ -62,7 +60,6 @@ function render() {
       : `<span class="goal">${goal(s)}</span>${then}`;
     $("upcoming").innerHTML = "";
     $("nolog").hidden = true;
-    reportHitRect();
     return;
   }
   const opt = s.tags.includes("must") ? "" : `<span class="optional">optional</span>`;
@@ -79,42 +76,39 @@ function render() {
     .map((n) => `<li><span class="z">${esc(n.zone)}</span>${md(t(n.text))}</li>`)
     .join("");
   $("nolog").hidden = state.log_found;
-  reportHitRect();
 }
 
-// The Rust side makes the overlay clickable only inside this rectangle.
-function reportHitRect(full) {
-  const r = full ? { x: 0, y: 0, width: innerWidth, height: innerHeight } : panel.getBoundingClientRect();
-  invoke("set_hit_rect", { x: r.x, y: r.y, w: r.width, h: r.height });
-}
-new ResizeObserver(() => reportHitRect()).observe(panel);
+// The window is exactly the panel: Rust sizes it to what we render here.
+new ResizeObserver(() => {
+  const r = panel.getBoundingClientRect();
+  invoke("panel_size", { w: r.width, h: r.height });
+}).observe(panel);
 
 $("prev").onclick = () => invoke("step", { delta: -1 });
 $("next").onclick = () => invoke("step", { delta: 1 });
 $("mini").onclick = () => invoke("toggle_mini");
 
 // Drag by the header (mini mode: by the whole line, a plain click opens the full panel).
-// While dragging the whole window stays clickable, otherwise a fast mouse
-// would leave the panel and drop the drag.
-panel.addEventListener("mousedown", (e) => {
-  if (e.target.closest("button") || (!state.mini && !e.target.closest("#bar"))) return;
+// Rust moves the window from the real cursor position; pointer capture keeps
+// the events coming even if the mouse outruns the window.
+panel.addEventListener("pointerdown", (e) => {
+  if (e.button !== 0 || e.target.closest("button") || (!state.mini && !e.target.closest("#bar"))) return;
+  panel.setPointerCapture(e.pointerId);
+  const sx = e.screenX, sy = e.screenY;
   let moved = false;
-  const dx = e.clientX - panel.offsetLeft, dy = e.clientY - panel.offsetTop;
-  reportHitRect(true);
+  invoke("drag", { phase: "start" });
   const move = (m) => {
-    moved = true;
-    panel.style.left = Math.max(0, Math.min(innerWidth - panel.offsetWidth, m.clientX - dx)) + "px";
-    panel.style.top = Math.max(0, Math.min(innerHeight - panel.offsetHeight, m.clientY - dy)) + "px";
+    moved ||= Math.abs(m.screenX - sx) + Math.abs(m.screenY - sy) > 3;
+    if (moved) invoke("drag", { phase: "move" });
   };
   const up = () => {
-    removeEventListener("mousemove", move);
-    removeEventListener("mouseup", up);
-    if (moved) invoke("save_pos", { x: panel.offsetLeft, y: panel.offsetTop });
-    else if (state.mini) invoke("toggle_mini");
-    else reportHitRect();
+    panel.removeEventListener("pointermove", move);
+    panel.removeEventListener("pointerup", up);
+    invoke("drag", { phase: "end" });
+    if (!moved && state.mini) invoke("toggle_mini");
   };
-  addEventListener("mousemove", move);
-  addEventListener("mouseup", up);
+  panel.addEventListener("pointermove", move);
+  panel.addEventListener("pointerup", up);
 });
 
 (async () => {
