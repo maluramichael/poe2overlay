@@ -108,6 +108,7 @@ new ResizeObserver(reportSize).observe(panel);
 $("prev").onclick = () => invoke("step", { delta: -1 });
 $("next").onclick = () => invoke("step", { delta: 1 });
 $("mini").onclick = () => invoke("toggle_mini");
+$("off").onclick = () => invoke("guide_off");
 
 // Drag by the header (mini mode: by the whole line, a plain click opens the full panel).
 // Rust moves the window from the real cursor position; pointer capture keeps

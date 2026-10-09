@@ -112,6 +112,8 @@ struct Saved {
     hotkeys: Hotkeys,
     regexes: Vec<Regex>,
     look: Look,
+    /// The campaign panel; off once the campaign is done. Regexes and settings keep working.
+    guide_on: bool,
 }
 
 impl Default for Saved {
@@ -127,6 +129,7 @@ impl Default for Saved {
             hotkeys: Hotkeys::default(),
             regexes: Vec::new(),
             look: Look::default(),
+            guide_on: true,
         }
     }
 }
@@ -139,6 +142,7 @@ struct Settings {
     hotkeys: Hotkeys,
     regexes: Vec<Regex>,
     look: Look,
+    guide_on: bool,
 }
 
 /// What the pages render. Sent whole on every change, it is tiny.
@@ -174,7 +178,10 @@ impl App {
             let mut s = self.snap.lock().unwrap();
             f(&mut s, guide);
             s.saved.step = guide.snap(s.saved.step.min(guide.len() - 1), &s.saved.route);
-            s.log_path = self.shared.lock().unwrap().log.clone();
+            let mut shared = self.shared.lock().unwrap();
+            s.log_path = shared.log.clone();
+            shared.user_hidden = !s.saved.guide_on;
+            drop(shared);
             s.clone()
         };
         let _ = std::fs::write(self.dir.join("state.json"), serde_json::to_string_pretty(&snap.saved).unwrap());
@@ -249,10 +256,7 @@ impl App {
             "next" => self.step(app, 1),
             "prev" => self.step(app, -1),
             "mini" => self.update(app, |s, _| s.saved.mini = !s.saved.mini),
-            "hide" => {
-                let mut s = self.shared.lock().unwrap();
-                s.user_hidden = !s.user_hidden;
-            }
+            "hide" => self.update(app, |s, _| s.saved.guide_on = !s.saved.guide_on),
             "settings" => toggle_window(app, "menu"),
             _ => toggle_window(app, "regex"),
         }
@@ -269,7 +273,7 @@ fn toggle_window(app: &AppHandle, label: &str) {
         hide_window(app, label);
         return;
     }
-    let (w, h) = if label == "menu" { (600.0, 960.0) } else { (460.0, 340.0) };
+    let (w, h) = if label == "menu" { (600.0, 1000.0) } else { (460.0, 340.0) };
     // Copy out: never hold a lock across window calls.
     let game = app.state::<App>().shared.lock().unwrap().game;
     game::center_on_game(&win, game, w, h);
@@ -324,6 +328,12 @@ fn toggle_mini(handle: AppHandle, app: State<App>) {
     app.update(&handle, |s, _| s.saved.mini = !s.saved.mini);
 }
 
+/// The ✕ in the panel: campaign guide off until switched on again.
+#[tauri::command]
+fn guide_off(handle: AppHandle, app: State<App>) {
+    app.update(&handle, |s, _| s.saved.guide_on = false);
+}
+
 /// The window follows the panel's rendered size (CSS pixels from the page).
 #[tauri::command]
 fn panel_size(window: tauri::WebviewWindow, handle: AppHandle, app: State<App>, w: f64, h: f64) {
@@ -366,6 +376,7 @@ fn save_settings(handle: AppHandle, app: State<App>, settings: Settings) -> Resu
         s.saved.hotkeys = settings.hotkeys;
         s.saved.regexes = settings.regexes.into_iter().filter(|r| !r.value.trim().is_empty()).collect();
         s.saved.look = settings.look.clamped();
+        s.saved.guide_on = settings.guide_on;
     });
     app.register_hotkeys(&handle)
 }
@@ -415,6 +426,7 @@ fn main() {
             guide,
             step,
             toggle_mini,
+            guide_off,
             panel_size,
             drag,
             save_settings,
@@ -446,6 +458,7 @@ fn main() {
                 panel: Panel { x: saved.x as i32, y: saved.y as i32, ..Default::default() },
                 log_pinned: pinned.is_some(),
                 log: pinned.or_else(log::find_client_log),
+                user_hidden: !saved.guide_on,
                 ..Default::default()
             }));
             tauri_app.manage(App {

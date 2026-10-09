@@ -41,12 +41,13 @@ Windows 10 and 11 already have WebView2. If yours does not, the installer fetche
 | `Ctrl+Alt+R` | Regex list: click one to copy it |
 | `Ctrl+Alt+Right` / `Ctrl+Alt+Left` | Next / previous step |
 | `Ctrl+Alt+C` | Toggle mini mode |
-| `Ctrl+Alt+G` | Hide / show the overlay |
+| `Ctrl+Alt+G` | Campaign guide on / off |
 
 All hotkeys can be changed in the settings. If another app already owns one (Exiled Exchange 2 uses `Shift+Space` by default), the panel says so in red and the overlay keeps trying every few seconds.
 
 - **Move the panel** by dragging its header, or the line in mini mode. In the lower half of the screen it opens upwards.
 - **Mini mode:** a click on the line opens the full panel.
+- **Done with the campaign?** The ✕ in the panel header (or `Ctrl+Alt+G`, or the settings) switches the guide off and it stays off after a restart. The regex list and the settings keep working. To quit the app completely: tray icon -> *Beenden*.
 - **Tray icon:** settings, reset the guide to the start, quit.
 
 ### Copying regexes from websites

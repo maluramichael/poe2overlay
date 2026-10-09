@@ -43,6 +43,7 @@ async function showSettings() {
   form.elements.lang.value = state.lang;
   form.elements.route.value = state.route;
   LOOK.forEach((k) => ($(k).value = state.look[k]));
+  $("guide_on").checked = state.guide_on;
   showLook();
   document.querySelectorAll(".hk").forEach((b) => {
     b.dataset.value = state.hotkeys[b.dataset.k];
@@ -146,7 +147,7 @@ form.addEventListener("submit", async (e) => {
     value: r.querySelector(".value").value,
   }));
   try {
-    await invoke("save_settings", { settings: { lang: form.elements.lang.value, route: form.elements.route.value, hotkeys, regexes, look: look() } });
+    await invoke("save_settings", { settings: { lang: form.elements.lang.value, route: form.elements.route.value, hotkeys, regexes, look: look(), guide_on: $("guide_on").checked } });
     invoke("close");
   } catch (err) {
     $("error").textContent = err;
