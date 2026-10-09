@@ -102,6 +102,16 @@ addEventListener("keydown", (e) => {
   if (view === "regex" && /^[1-9]$/.test(e.key)) copy(+e.key - 1);
 });
 
+// Mobalytics' copy button puts the regex only into the HTML clipboard format,
+// the plain text is empty. Take the text out of the HTML then.
+$("rows").addEventListener("paste", (e) => {
+  const data = e.clipboardData;
+  if (!data || data.getData("text/plain") || !data.getData("text/html")) return;
+  e.preventDefault();
+  const text = new DOMParser().parseFromString(data.getData("text/html"), "text/html").body.textContent.trim();
+  e.target.setRangeText(text, e.target.selectionStart, e.target.selectionEnd, "end");
+});
+
 $("add").onclick = () => regexRow();
 $("reload").onclick = async () => {
   await invoke("reload_guide");
