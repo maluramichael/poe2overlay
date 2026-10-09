@@ -22,7 +22,8 @@
         "resizable": false,
         "focus": false,
         "focusable": false,
-        "visible": false
+        "visible": false,
+        "create": false
       },
       {
         "label": "menu",
@@ -36,7 +37,8 @@
         "skipTaskbar": true,
         "shadow": false,
         "resizable": false,
-        "visible": false
+        "visible": false,
+        "create": false
       },
       {
         "label": "regex",
@@ -52,11 +54,12 @@
         "resizable": false,
         "focus": false,
         "focusable": false,
-        "visible": false
+        "visible": false,
+        "create": false
       }
     ],
     "security": {
-      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'"
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost"
     }
   },
   "bundle": {

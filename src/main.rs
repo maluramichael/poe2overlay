@@ -374,12 +374,10 @@ fn main() {
                 .filter(|j| guide::Guide::parse(j).is_ok())
                 .unwrap_or_else(|| include_str!("../ui/guide.json").to_string());
             let pinned = saved.client_log.clone().filter(|p| p.is_file());
-            let menu = tauri_app.get_webview_window("menu").unwrap();
             let shared = Arc::new(Mutex::new(Shared {
                 panel: Panel { x: saved.x as i32, y: saved.y as i32, ..Default::default() },
                 log_pinned: pinned.is_some(),
                 log: pinned.or_else(log::find_client_log),
-                menu_hwnd: menu.hwnd().map_or(0, |h| h.0 as isize),
                 ..Default::default()
             }));
             tauri_app.manage(App {
@@ -389,6 +387,12 @@ fn main() {
                 bindings: Mutex::new(Vec::new()),
                 dir,
             });
+            // Windows are created only now ("create": false in tauri.conf.json):
+            // their pages call commands right away, and those need the state above.
+            for cfg in tauri_app.config().app.windows.clone() {
+                tauri::WebviewWindowBuilder::from_config(tauri_app.handle(), &cfg)?.build()?;
+            }
+            shared.lock().unwrap().menu_hwnd = tauri_app.get_webview_window("menu").unwrap().hwnd().map_or(0, |h| h.0 as isize);
             if let Err(e) = handle.state::<App>().register_hotkeys(&handle) {
                 eprintln!("hotkeys: {e}");
             }

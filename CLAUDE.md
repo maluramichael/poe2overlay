@@ -18,6 +18,7 @@ Open-Source-Ingame-Overlay für Path of Exile 2 (Ersatz für poeoverlay.com ohne
 ## Wichtig
 
 - Versionen exakt gepinnt (`=2.12.1` tauri, `=2.7.1` tauri-build). Tauri-Unterkrates müssen zusammenpassen: 2.11.6 + neues tauri-runtime kompiliert nicht.
+- Alle Fenster haben `"create": false` und entstehen in `setup` erst nach `manage()`: sonst rufen die Seiten Commands vor dem State auf ("state not managed") und das Panel bleibt unsichtbar. Debuggen der Seiten: `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9333` setzen, dann per DevTools-Protokoll (`/json/list`, Node-WebSocket) Fehler lesen, ohne Eingaben.
 - `focusable: false` im Fenster-Config: Klick ins Overlay lässt dem Spiel den Fokus. Nicht entfernen.
 - Kein Klick-durch-Umschalten: `set_ignore_cursor_events(false)` entfernt `WS_EX_LAYERED` (weißer Blitz), und mit dauerhaft gesetztem `LAYERED` gehen Klicks durch das Panel ins Spiel (WebView2 zeichnet an der Layered-Fläche vorbei). Darum ist das Fenster nur so groß wie das Panel.
 - Schritt erledigt per Belohnungszeile im Log (`: <char> has received +10% to [Resistances|Cold Resistance].`, `: You have received 2 Passive Skill Points.`): Tabelle `REWARDS` in `src/guide.rs` mappt Phrase im englischen Goal-Text nach `->` auf den Log-Text. Kills selbst stehen nicht im Log, Boss-Sprüche schon (`Beira of the Rotten Pack: Invader!`).
