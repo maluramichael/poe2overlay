@@ -5,6 +5,7 @@ Open-source in-game overlay for Path of Exile 2. No ads, no Overwolf, no account
 Right now it does one thing: a **campaign guide** that sits on top of the game and follows you through the acts.
 
 - Reads `Client.txt` and jumps to the right step when you enter a zone.
+- Moves on by itself when you get a step's permanent reward (resistances, spirit, life, mana, passive points).
 - Shows the current step (goal, how-to, notes) and the next two steps.
 - Knows where you are: in town, hideout or the wrong zone it says **Go to <zone>** for the current step.
 - **Mini mode:** one line with zone, what to do there and where to go next.

@@ -14,6 +14,9 @@ pub enum Event {
     Area { id: String, level: u32 },
     /// `: Name (Class) is now level 12`
     Level(u32),
+    /// `: gem_override has received +10% to [Resistances|Cold Resistance].` or
+    /// `: You have received 2 Passive Skill Points.`: the text after "received".
+    Reward(String),
     /// The tail switched to a (new) log file.
     Opened,
 }
@@ -33,6 +36,12 @@ pub fn parse(line: &str) -> Option<Event> {
         let (level, rest) = rest.split_once(" area \"")?;
         let id = &rest[..rest.find('"')?];
         return Some(Event::Area { id: id.to_string(), level: level.trim().parse().ok()? });
+    }
+    // System messages start with "] : ", chat lines with "] #name:" and the like.
+    if let Some(msg) = line.find("] : ").map(|i| &line[i + 4..]) {
+        if let Some(i) = msg.find(" has received ").map(|i| i + " has received ".len()).or_else(|| msg.strip_prefix("You have received ").map(|_| "You have received ".len())) {
+            return Some(Event::Reward(msg[i..].trim().to_string()));
+        }
     }
     if let Some(i) = line.find(") is now level ") {
         // ponytail: also fires for party members, add a character-name filter if that bites
@@ -114,7 +123,8 @@ fn catch_up(path: &Path, on_event: &impl Fn(Event)) -> Option<u64> {
             Event::Level(_) => level = Some(e),
             Event::Area { .. } => area = Some(e),
             Event::Scene(_) => scene = Some(e),
-            Event::Opened => {}
+            // Old rewards must not replay: the pointer already moved past them.
+            Event::Reward(_) | Event::Opened => {}
         }
     }
     [level, area, scene].into_iter().flatten().for_each(on_event);
@@ -141,6 +151,15 @@ mod tests {
             Some(Event::Level(12))
         );
         assert_eq!(parse("2025/10/07 20:01:02 [INFO Client 36300] Connecting to instance server"), None);
+        assert_eq!(
+            parse("2026/10/09 11:54:02 13665296 3ef23348 [INFO Client 32720] : gem_override has received +10% to [Resistances|Cold Resistance]."),
+            Some(Event::Reward("+10% to [Resistances|Cold Resistance].".into()))
+        );
+        assert_eq!(
+            parse("2026/10/07 21:00:00 1 3ef23348 [INFO Client 31752] : You have received 2 Passive Skill Points."),
+            Some(Event::Reward("2 Passive Skill Points.".into()))
+        );
+        assert_eq!(parse("2026/10/07 21:49:02 1 3ef23348 [INFO Client 31752] #Someone: I have received nothing"), None);
     }
 
     #[test]

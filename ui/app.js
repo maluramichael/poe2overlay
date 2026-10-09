@@ -28,6 +28,13 @@ function goTo(s) {
   return s.zone.split("->")[0].split("/")[0].trim();
 }
 
+// First later step in a different zone: where to go once this step is done.
+function nextZone(i) {
+  const here = zonesOf(guide.steps[i].zone);
+  const n = guide.steps.slice(i + 1).find((n) => !zonesOf(n.zone).some((z) => here.includes(z)));
+  return n ? n.zone.split("->")[0].split("/")[0].trim() : "";
+}
+
 function render() {
   const i = state.step, s = guide.steps[i];
   const act = guide.acts[s.act];
@@ -46,9 +53,13 @@ function render() {
   cur.className = s.tags.join(" ");
   const go = goTo(s);
   const goLabel = state.lang === "de" ? "Gehe nach" : "Go to";
+  const next = nextZone(i);
+  const then = next ? `<span class="then">${state.lang === "de" ? "danach" : "then"}: <span class="dest">${esc(next)}</span></span>` : "";
   if (state.mini) {
-    // One line. Elsewhere: where to go and what to do there. In the zone: just the task.
-    cur.innerHTML = (go ? `<span class="go">${goLabel} <span class="dest">${esc(go)}</span>:</span> ` : "") + `<span class="goal">${goal(s)}</span>`;
+    // One line. Elsewhere: where to go and what to do there. In the zone: the task, then where to go next.
+    cur.innerHTML = go
+      ? `<span class="go">${goLabel} <span class="dest">${esc(go)}</span>:</span> <span class="goal">${goal(s)}</span>`
+      : `<span class="goal">${goal(s)}</span>${then}`;
     $("upcoming").innerHTML = "";
     $("nolog").hidden = true;
     reportHitRect();
@@ -59,6 +70,7 @@ function render() {
     (go ? `<div class="go">${goLabel} <span class="dest">${esc(go)}</span><span class="here">${esc(state.zone)}</span></div>` : "") +
     `<div class="zone">${esc(s.zone)}${s.level ? `<span class="lvl">Lvl ${esc(s.level)}</span>` : ""}${opt}</div>` +
     `<div class="goal">${goal(s)}</div>` +
+    (then ? `<div>${then}</div>` : "") +
     (s.hint ? `<div class="hint">${md(t(s.hint))}</div>` : "") +
     (s.notes.length ? `<ul class="notes">${s.notes.map((n) => `<li>${md(t(n))}</li>`).join("")}</ul>` : "");
 

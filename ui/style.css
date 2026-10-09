@@ -18,7 +18,9 @@ body{color:var(--ink);font:15px/1.4 var(--serif);-webkit-font-smoothing:antialia
 
 #current{padding:9px 12px 10px}
 .go{margin:-9px -12px 8px;padding:5px 12px;background:rgba(223,207,153,.1);border-bottom:1px solid var(--line);font-size:14px;color:var(--ink-2)}
-.go .dest{color:var(--dest);font-variant:small-caps;letter-spacing:.03em;font-weight:600}
+.dest{color:var(--dest);font-variant:small-caps;letter-spacing:.03em;font-weight:600}
+.then{font-size:13px;color:var(--ink-3)}
+.mini .then{margin-left:10px}
 .go .here{float:right;font-size:12px;color:var(--ink-3)}
 .zone{font-variant:small-caps;letter-spacing:.04em;font-size:13px;color:var(--sand)}
 .zone .lvl{font:11px var(--num);color:var(--ink-3);margin-left:6px}

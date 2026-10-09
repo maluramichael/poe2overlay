@@ -18,6 +18,8 @@ Open-Source-Ingame-Overlay für Path of Exile 2 (Ersatz für poeoverlay.com ohne
 
 - Versionen exakt gepinnt (`=2.12.1` tauri, `=2.7.1` tauri-build). Tauri-Unterkrates müssen zusammenpassen: 2.11.6 + neues tauri-runtime kompiliert nicht.
 - `focusable: false` im Fenster-Config: Klick ins Overlay lässt dem Spiel den Fokus. Nicht entfernen.
+- Klick-durch nie per `set_ignore_cursor_events(false)` abschalten: das entfernt `WS_EX_LAYERED` und das Fenster blitzt weiß. `game.rs::set_click_through` schaltet nur `WS_EX_TRANSPARENT`.
+- Schritt erledigt per Belohnungszeile im Log (`: <char> has received +10% to [Resistances|Cold Resistance].`, `: You have received 2 Passive Skill Points.`): Tabelle `REWARDS` in `src/guide.rs` mappt Phrase im englischen Goal-Text nach `->` auf den Log-Text. Kills selbst stehen nicht im Log, Boss-Sprüche schon (`Beira of the Rotten Pack: Invader!`).
 - Hit-Rect kommt vom JS in CSS-px, Rust rechnet mit `scale_factor` auf physische px um.
 - Log-Pfad: sobald das Spielfenster da ist, `logs\Client.txt` neben der exe des Spielprozesses (Michael spielt über Steam auf `D:\Steam\...`, der Standalone-Log unter C: ist veraltet). Prüfen mit `cargo test -- --ignored` bei laufendem Spiel.
 - Log-Zeilen-Formate stehen als Tests in `src/log.rs` (aus echtem PoE2-Log, 0.5.x).
@@ -25,6 +27,6 @@ Open-Source-Ingame-Overlay für Path of Exile 2 (Ersatz für poeoverlay.com ohne
 
 ## Testen
 
-`cargo test`. E2E ohne Spiel: PowerShell-WinForms-Fenster mit Titel `Path of Exile 2` öffnen, in `state.json` `client_log` auf eine Test-Datei setzen, SCENE-Zeilen anhängen, Hotkeys per `keybd_event`. In PowerShell-P/Invoke `[NullString]::Value` statt `$null` an `FindWindow` geben.
+`cargo test`. E2E ohne Spiel: PowerShell-WinForms-Fenster öffnen und das Overlay mit `POE2OVERLAY_GAME_TITLE=<Titel>` darauf zeigen lassen (kollidiert so nicht mit einem laufenden Spiel; Fokus braucht der Test trotzdem, also nicht während Michael spielt), in `state.json` `client_log` auf eine Test-Datei setzen, SCENE-Zeilen anhängen, Hotkeys per `keybd_event`. In PowerShell-P/Invoke `[NullString]::Value` statt `$null` an `FindWindow` geben.
 
 Commits mit `--author="Michael Malura <michael@malura.de>"`, ohne Co-Authored-By.

@@ -6,11 +6,14 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use tauri::{PhysicalPosition, PhysicalSize, WebviewWindow};
-use windows::core::{w, PWSTR};
+use windows::core::{HSTRING, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, HWND, POINT, RECT};
 use windows::Win32::Graphics::Gdi::ClientToScreen;
 use windows::Win32::System::Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION};
-use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, GetClientRect, GetCursorPos, GetForegroundWindow, GetWindowThreadProcessId, IsIconic};
+use windows::Win32::UI::WindowsAndMessaging::{
+    FindWindowW, GetClientRect, GetCursorPos, GetForegroundWindow, GetWindowLongPtrW, GetWindowThreadProcessId, IsIconic, SetWindowLongPtrW,
+    GWL_EXSTYLE, WS_EX_TRANSPARENT,
+};
 
 /// Panel rectangle in physical pixels, relative to the overlay window.
 #[derive(Default, Clone, Copy)]
@@ -57,14 +60,34 @@ fn client_rect(hwnd: HWND) -> Option<RECT> {
     Some(RECT { left: origin.x, top: origin.y, right: origin.x + r.right, bottom: origin.y + r.bottom })
 }
 
+/// Click-through on or off by toggling only WS_EX_TRANSPARENT. Tauri's
+/// set_ignore_cursor_events(false) also drops WS_EX_LAYERED, which throws
+/// away the transparent surface and flashes the window white (Electron keeps
+/// LAYERED on transparent windows for the same reason). Checked every tick,
+/// because tao re-applies its own styles on show/hide.
+fn set_click_through(hwnd: HWND, on: bool) {
+    let flag = WS_EX_TRANSPARENT.0 as isize;
+    unsafe {
+        let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        if (ex & flag != 0) != on {
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex ^ flag);
+        }
+    }
+}
+
 pub fn spawn_tracker(win: WebviewWindow, shared: Arc<Mutex<Shared>>) {
+    // Test knob: point the overlay at another window while the real game runs.
+    let title = HSTRING::from(std::env::var("POE2OVERLAY_GAME_TITLE").unwrap_or_else(|_| "Path of Exile 2".into()));
     thread::spawn(move || {
-        let (mut visible, mut ignoring, mut last_rect, mut last_game) = (false, true, RECT::default(), None);
+        let (mut visible, mut last_rect, mut last_game) = (false, RECT::default(), None);
+        // Sets WS_EX_LAYERED | WS_EX_TRANSPARENT once; tao keeps both from here on.
         let _ = win.set_ignore_cursor_events(true);
+        // tauri hands out its own windows-crate version of HWND
+        let Ok(overlay) = win.hwnd().map(|h| HWND(h.0)) else { return };
         loop {
             // ponytail: 100 ms polling, switch to SetWinEventHook if the lag ever shows
             thread::sleep(Duration::from_millis(100));
-            let game = unsafe { FindWindowW(None, w!("Path of Exile 2")) }.ok();
+            let game = unsafe { FindWindowW(None, &title) }.ok();
             let (hit, user_hidden) = {
                 let mut s = shared.lock().unwrap();
                 if game.is_some() && game != last_game && !s.log_pinned {
@@ -94,10 +117,7 @@ pub fn spawn_tracker(win: WebviewWindow, shared: Arc<Mutex<Shared>>) {
                 && unsafe { GetCursorPos(&mut cur) }.is_ok()
                 && (hit.x..hit.x + hit.w).contains(&(cur.x - last_rect.left))
                 && (hit.y..hit.y + hit.h).contains(&(cur.y - last_rect.top));
-            if over_panel == ignoring {
-                let _ = win.set_ignore_cursor_events(!over_panel);
-                ignoring = !over_panel;
-            }
+            set_click_through(overlay, !over_panel);
         }
     });
 }
@@ -105,6 +125,7 @@ pub fn spawn_tracker(win: WebviewWindow, shared: Arc<Mutex<Shared>>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use windows::core::w;
 
     #[test]
     #[ignore = "needs a running game: cargo test -- --ignored"]

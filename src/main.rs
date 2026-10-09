@@ -74,6 +74,11 @@ impl App {
             log::Event::Area { level, .. } => s.area_level = level,
             log::Event::Level(l) => s.char_level = l,
             log::Event::Opened => s.log_found = true,
+            log::Event::Reward(r) => {
+                if let Some(i) = self.guide.complete(s.saved.step, &r) {
+                    s.saved.step = i;
+                }
+            }
         });
     }
 
